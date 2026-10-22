@@ -19,7 +19,7 @@ import { TransactionService } from "./transactions.ts";
 
 const budgetPath = "projects/beyond-budget/databases/(default)/documents/budgets/testBudget";
 const transactionId = "AbCdEfGhIjKlMnOpQrSt";
-const timestamp = "2026-10-01T00:00:00.000Z";
+const timestamp = "2026-10-01T12:00:00.000Z";
 
 const session: Session = {
   budgetIds: ["testBudget"],
@@ -972,7 +972,7 @@ test("income and upcoming previews show only their actual money effects", async 
   expect(income.summary).toMatchObject({
     accounts: [
       {
-        balanceAmount: { after: 10_125, before: 10_000, delta: 125 },
+        balanceAmount: { after: 10_000, before: 10_000, delta: 0 },
         id: "cash",
         unclearedBalanceAmount: { after: 125, before: 0, delta: 125 },
       },
@@ -1180,4 +1180,115 @@ test("funding preserves exact available money when large intermediate sums excee
   });
   const result = await categoryFunding(client, "2026-10", "spend");
   expect(result.categories[0]?.availableAmount).toBe(9_007_199_254_740_991);
+});
+
+test("uncleared income changes only the uncleared account balance on creation and deletion", async () => {
+  const { service, documents } = fixture();
+
+  const created = writesFrom(
+    await service.create(
+      {
+        accountId: "cash",
+        amountMinor: 125,
+        cleared: false,
+        completed: true,
+        dueAt: timestamp,
+        type: "INFLOW",
+      },
+      { dryRun: true }
+    )
+  );
+
+  expect(writeAt(created, "stashes/accountsIndex").updateTransforms).toContainEqual({
+    fieldPath: "data.cash.unclearedBalanceAmount",
+    increment: { integerValue: "125" },
+  });
+  expect(
+    writeAt(created, "stashes/accountsIndex").updateTransforms?.some(
+      (t) => t.fieldPath === "data.cash.balanceAmount"
+    )
+  ).toBe(false);
+  expect(
+    writeAt(created, "stashes/cash").updateTransforms?.some((t) =>
+      t.fieldPath.startsWith("data.historicalBalances")
+    )
+  ).toBe(false);
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    amount: 125,
+    cleared: false,
+    targetFrom: null,
+    targetTo: { id: "cash", linkedObjectId: null, linkedObjectType: null, type: "GENERIC_ACCOUNT" },
+    type: "INFLOW",
+  });
+  const removed = writesFrom(await service.delete(transactionId, { dryRun: true }));
+  expect(writeAt(removed, "stashes/accountsIndex").updateTransforms).toContainEqual({
+    fieldPath: "data.cash.unclearedBalanceAmount",
+    increment: { integerValue: "-125" },
+  });
+  expect(
+    writeAt(removed, "stashes/accountsIndex").updateTransforms?.some(
+      (t) => t.fieldPath === "data.cash.balanceAmount"
+    )
+  ).toBe(false);
+  expect(
+    writeAt(removed, "stashes/cash").updateTransforms?.some((t) =>
+      t.fieldPath.startsWith("data.historicalBalances")
+    ) ?? false
+  ).toBe(false);
+});
+
+test.each([
+  { after: true, before: false, clearedDelta: "125", unclearedDelta: "-125" },
+  { after: false, before: true, clearedDelta: "-125", unclearedDelta: "125" },
+])(
+  "income clearing moves funds between account balances and history: $before to $after",
+  async ({ before, after, clearedDelta, unclearedDelta }) => {
+    const { service, documents } = fixture();
+    documents.set(`${budgetPath}/transactions/${transactionId}`, {
+      ...canonicalTransaction,
+      amount: 125,
+      cleared: before,
+      targetFrom: null,
+      targetTo: {
+        id: "cash",
+        linkedObjectId: null,
+        linkedObjectType: null,
+        type: "GENERIC_ACCOUNT",
+      },
+      type: "INFLOW",
+    });
+
+    const writes = writesFrom(
+      await service.update(transactionId, { cleared: after }, { dryRun: true })
+    );
+
+    expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual([
+      { fieldPath: "data.cash.balanceAmount", increment: { integerValue: clearedDelta } },
+      {
+        fieldPath: "data.cash.unclearedBalanceAmount",
+        increment: { integerValue: unclearedDelta },
+      },
+    ]);
+    expect(writeAt(writes, "stashes/cash").updateTransforms).toEqual([
+      { fieldPath: "data.historicalBalances.`2026-10`", increment: { integerValue: clearedDelta } },
+    ]);
+  }
+);
+
+test("income history rejects a stored month that differs from its runtime due-date month", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    amount: 125,
+    dueAt: "2026-09-15T12:00:00Z",
+    targetFrom: null,
+    targetTo: { id: "cash", linkedObjectId: null, linkedObjectType: null, type: "GENERIC_ACCOUNT" },
+    type: "INFLOW",
+  });
+  await expect(service.delete(transactionId, { dryRun: true })).rejects.toThrow("month");
+  await expect(service.update(transactionId, { cleared: false }, { dryRun: true })).rejects.toThrow(
+    "month"
+  );
+  expect(calls.every((c) => c.method === "GET")).toBe(true);
 });

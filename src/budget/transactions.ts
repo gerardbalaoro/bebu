@@ -37,6 +37,26 @@ import { transactionSummary } from "./transaction-summary.ts";
 
 type TransactionContext = Awaited<ReturnType<TransactionService["context"]>>;
 
+// Native inflow history (51731) selects the due-date month in the runtime system timezone.
+// Reject disagreement with the stored month instead of moving money between guessed history keys.
+const incomeHistoryMonth = (transaction: Transaction): string => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    year: "numeric",
+  }).formatToParts(new Date(transaction.dueAt));
+
+  const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const month = `${fields.year}-${fields.month}`;
+
+  if (month !== transaction.yearMonth) {
+    throw new Error(
+      "Income history month differs from the runtime due-date month. Resolve it in the app"
+    );
+  }
+
+  return month;
+};
+
 const requireId = (id: string): string => ObjectIdSchema.parse(id);
 
 const requireTarget = (target: Target | null): Target => {
@@ -586,6 +606,16 @@ export class TransactionService {
       increment(`${this.client.budgetPath}/stashes/${id}`, ["data", key, transaction.yearMonth], n);
 
     const accountEffects = async (account: Target, n: number) => {
+      if (transaction.type === "INFLOW" && !transaction.cleared) {
+        await increment(accountPath, ["data", account.id, "unclearedBalanceAmount"], n);
+
+        return;
+      }
+
+      if (transaction.type === "INFLOW") {
+        incomeHistoryMonth(transaction);
+      }
+
       await balance(account, n);
 
       if (!transaction.cleared) {
@@ -796,6 +826,18 @@ export class TransactionService {
       const from = transaction.targetFrom;
       const to = transaction.targetTo;
       const accountPath = `${this.client.budgetPath}/stashes/${this.client.stashId("ACCOUNTS")}`;
+
+      if (transaction.type === "INFLOW") {
+        const account = requireTarget(to);
+        const month = incomeHistoryMonth(transaction);
+        const delta = -direction * transaction.amount;
+        await plan.increment(accountPath, ["data", account.id, "balanceAmount"], delta);
+        await plan.increment(
+          `${this.client.budgetPath}/stashes/${account.id}`,
+          ["data", "historicalBalances", month],
+          delta
+        );
+      }
 
       if (transaction.type === "INFLOW" && budget.data.type === "ZERO_BASED") {
         if (!transaction.periodId) {

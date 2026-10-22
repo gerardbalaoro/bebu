@@ -351,9 +351,8 @@ action. It must retain `executionSupported: false`, report admission/context lim
 calculations to explicit snapshots. It must not route an incomplete write plan through the commit
 path.
 
-There is also a concrete prerequisite in the current transaction code. `accountEffects` in
-`transactions.ts` increments raw `balanceAmount` and account history for uncleared income, then also
-increments `unclearedBalanceAmount`. Native 51729 selects one balance field, and 51731 gates history
-on completed plus cleared. The CLI's cleared-update branch changes uncleared balance and allocation
-resources but omits the native cleared-balance and account-history movement. These are
-static-derived discrepancies to validate and address before extending financial writes.
+The CLI follows the recovered independent-income balance movements. Uncleared income changes only
+`unclearedBalanceAmount`. Clearing moves the amount into `balanceAmount` and account history.
+Unclearing reverses those movements. The CLI rejects income history updates when the stored month
+differs from the due-date month in its runtime timezone. This restriction avoids guessing a history
+key. These changes have synthetic regression tests, but no native mutation fixture.

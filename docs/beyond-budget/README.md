@@ -26,6 +26,10 @@ resources. Cleared, completed zero-based income increases allocation resources b
 categories. Transactions with possible native allocation effects reject deletion and clearing
 changes.
 
+Uncleared income changes only the uncleared account balance. Clearing moves the amount into the
+cleared balance and account history. Unclearing reverses those movements. Income history requires
+agreement between the stored month and the due-date month in the CLI runtime timezone.
+
 ## Data Model
 
 | Document             | Relevant Fields                                                            |
@@ -65,9 +69,8 @@ The direct writer returns before server confirmation. Undo subtracts the recorde
 current allocation, then separately marks the original history entry.
 
 [Linked Income Allocation](linked-allocation.md) records creation, clearing changes, deletion, and
-their separate history writes. It also identifies a current CLI discrepancy: uncleared income
-changes both account balance fields, while the native handler changes only the uncleared field.
-Clearing changes also omit the native movement in the cleared balance and account history.
+their separate history writes. The CLI follows the recovered independent-income balance movements
+and retains its guards against linked-allocation writes.
 
 [Smart Allocation](smart-allocation.md) records upcoming membership, category priority, and phase
 overlap. A restricted preview can cover overspending and supported targets when upcoming entries and

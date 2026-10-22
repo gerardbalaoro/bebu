@@ -49,9 +49,12 @@ report. For positive historical averages, use allocations averages with an expli
 For raw target settings, use targets list. Category availability is not target progress.
 
 For allocation writes, overspending coverage, or allocation undo, use the native Beyond Budget app.
-CLI income does not fund categories. Cleared, completed income increases allocation resources in a
-zero-based budget. Native income allocation, linked-account allocation, and bulk allocation are
-separate workflows. Their availability depends on the native app and its settings.
+CLI income does not fund categories. Uncleared income changes only the uncleared account balance.
+Clearing income moves the amount into the cleared balance and account history. Unclearing reverses
+those movements. Cleared, completed income increases allocation resources in a zero-based budget.
+Income history requires agreement between its stored month and its due-date month in the CLI runtime
+timezone. Native income allocation, linked-account allocation, and bulk allocation are separate
+workflows. Their availability depends on the native app and its settings.
 
 A completed CLI card expense needs sufficient category funds and increases the linked payment
 category's otherAmount. This payment reserve effect does not enable automatic allocation.
