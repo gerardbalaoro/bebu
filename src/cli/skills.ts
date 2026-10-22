@@ -50,6 +50,16 @@ Unknown values and absent settings have no inferred meaning or default.
 
 ## Allocation requests
 
+For a target funding preview, use allocations preview with an explicit month.
+The CLI calculates eligibility, priority, requested amounts, partial funding, and shortfalls from saved data.
+It supports a limited set of ordinary zero-based budgets and target types. An unsupported input stops the preview.
+Do not calculate missing amounts or reproduce a rejected workflow with a chain of commands.
+The preview reports executionSupported:false and cannot save allocations.
+
+For allocation records, use allocations history. For category and nature totals, use allocations report.
+For positive historical averages, use allocations averages with an explicit reference month.
+For raw target settings, use targets list. Category availability is not target progress.
+
 For allocation writes, overspending coverage, or allocation undo, use the native Beyond Budget app.
 CLI income does not fund categories. Cleared, completed income increases allocation resources in a zero-based budget.
 Native income allocation, linked-account allocation, and bulk allocation are separate workflows. Their availability depends on the native app and its settings.

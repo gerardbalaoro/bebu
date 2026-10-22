@@ -1083,6 +1083,31 @@ test("CLI funding, diagnostics, and compact dry runs expose semantic results wit
       ],
     });
 
+    const history = await captureExecute(createApp(), [
+      "allocations",
+      "history",
+      "--month",
+      "2026-10",
+    ]);
+
+    expect(history.exitCode).toBe(0);
+    expect(JSON.parse(history.stdout)).toMatchObject({ entries: [], periodId: "periodOne" });
+
+    const report = await captureExecute(createApp(), [
+      "allocations",
+      "report",
+      "--month",
+      "2026-10",
+    ]);
+
+    expect(report.exitCode).toBe(0);
+    expect(JSON.parse(report.stdout)).toMatchObject({
+      allocatedAmount: 50_000,
+      positiveAllocatedAmount: 50_000,
+    });
+    const targets = await captureExecute(createApp(), ["targets", "list", "--month", "2026-10"]);
+    expect(targets.exitCode).toBe(0);
+    expect(JSON.parse(targets.stdout)).toMatchObject({ periodId: "periodOne", targets: [] });
     const payload = nodePath.join(directory, "transaction.json");
     await writeFile(
       payload,

@@ -16,6 +16,7 @@ export const CategorySchema = z
     id: z.string(),
     linkedAccountIds: z.array(z.string()).default([]),
     name: z.string().optional(),
+    nature: z.string().optional(),
     type: z.string(),
   })
   .loose();

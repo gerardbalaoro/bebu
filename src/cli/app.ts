@@ -16,10 +16,15 @@ import { authCommand, sessionCommand } from "../auth/commands.ts";
 import { AuthError } from "../auth/login.ts";
 import { loadSession } from "../auth/session.ts";
 import { AccountPatchSchema, AccountService } from "../budget/accounts.ts";
+import { allocationAverages } from "../budget/allocation-averages.ts";
+import { allocationHistory } from "../budget/allocation-history.ts";
+import { allocationReport } from "../budget/allocation-report.ts";
+import { previewTargetAllocation } from "../budget/auto-allocation.ts";
 import { budgetDiagnostics } from "../budget/diagnostics.ts";
 import { categoryFunding } from "../budget/funding.ts";
 import { LabelsSchema } from "../budget/labels.ts";
 import { CategoriesSchema } from "../budget/model.ts";
+import { categoryTargets } from "../budget/targets.ts";
 import { TransactionCreateSchema, TransactionPatchSchema } from "../budget/transaction-model.ts";
 import { TransactionService } from "../budget/transactions.ts";
 import { BeyondClient } from "../firestore/client.ts";
@@ -383,6 +388,203 @@ const budgetCommand = defineCommand(
     )
 );
 
+const allocationsCommand = defineCommand(
+  "allocations",
+  { description: "Preview target allocation and inspect category allocation history" },
+  (command) =>
+    command
+      .add(
+        defineCommand(
+          "preview",
+          {
+            description: "Calculate target funding without changing the budget",
+            sections: [
+              {
+                body: "The CLI calculates ongoing-savings and monthly-spending targets from saved data. It applies snoozing, category order, and the authenticated user's partial-funding setting. It requires a flat zero-based budget, the current/latest saved month, and an explicit saved timezone. Hierarchies, archived or special categories, linked accounts, ambiguous order, other target formulas, and ignoring available funds are rejected. Upcoming amounts do not prevent a target preview. The result shows source document versions, pool operands, category allocations before and after, and shortfalls. Reads are not one atomic snapshot. executionSupported is false: this command cannot save the plan. Do not convert its output into manual document writes.",
+                title: "Supported preview",
+              },
+            ],
+          },
+          (leaf) =>
+            leaf
+              .flags(...readFlags, {
+                description: "Select the current/latest saved YYYY-MM budget month",
+                name: "month",
+                required: true,
+                type: "string",
+              })
+              .action(async ({ flags, stdout }) =>
+                print(
+                  stdout,
+                  await previewTargetAllocation(await clientFor(flags.budget), flags.month),
+                  flags.compact
+                )
+              )
+        )
+      )
+      .add(
+        defineCommand(
+          "averages",
+          {
+            description: "Read average allocation and spending from prior saved months",
+            sections: [
+              {
+                body: "Select a reference month with --before and one or three saved periods with --periods. The query uses the latest saved periods before that month, even when calendar months are absent. It averages only positive values and truncates fractional minor units. Results include orphan category IDs, contributing period counts, and source versions. This is a history query. It does not execute historical auto-allocation or calculate replacement effects.",
+                title: "History basis",
+              },
+            ],
+          },
+          (leaf) =>
+            leaf
+              .flags(
+                ...readFlags,
+                {
+                  description: "Use saved periods before this YYYY-MM month",
+                  name: "before",
+                  required: true,
+                  type: "string",
+                },
+                {
+                  default: 3,
+                  description: "Use 1 or 3 saved periods",
+                  name: "periods",
+                  type: "number",
+                }
+              )
+              .action(async ({ flags, stdout }) =>
+                print(
+                  stdout,
+                  await allocationAverages(
+                    await clientFor(flags.budget),
+                    flags.before,
+                    flags.periods
+                  ),
+                  flags.compact
+                )
+              )
+        )
+      )
+      .add(
+        defineCommand(
+          "history",
+          {
+            description: "Read native allocation history, optionally with matching transactions",
+            sections: [
+              {
+                body: "Entries retain their raw source, amount fields, map key, and stored ID. Rows use ascending map-key order. --transactions looks up both candidate IDs in canonical transactions; unmatched entries remain visible. A history entry does not establish the complete financial effects of its operation. Reads include document versions but are not one atomic snapshot.",
+                title: "History scope",
+              },
+            ],
+          },
+          (leaf) =>
+            leaf
+              .flags(
+                ...readFlags,
+                {
+                  description: "Filter by an existing YYYY-MM budget month",
+                  name: "month",
+                  type: "string",
+                },
+                {
+                  description: "Match categoryId or linkedCategoryId",
+                  name: "category",
+                  type: "string",
+                },
+                {
+                  description: "Look up canonical transactions associated by map key or stored ID",
+                  name: "transactions",
+                  type: "boolean",
+                }
+              )
+              .action(async ({ flags, stdout }) =>
+                print(
+                  stdout,
+                  await allocationHistory(await clientFor(flags.budget), {
+                    categoryId: flags.category,
+                    includeTransactions: flags.transactions,
+                    yearMonth: flags.month,
+                  }),
+                  flags.compact
+                )
+              )
+        )
+      )
+      .add(
+        defineCommand(
+          "report",
+          {
+            description: "Summarize monthly allocations by category and nature",
+            sections: [
+              {
+                body: "The total includes negative allocations. Whole-number percentages use the sum of positive category allocations, with negative contributions shown as zero percent. The report includes orphan balances and retains unknown natures. This calculation matches the inspected native example; complete native report parity is not established. This is not a ready-to-allocate balance.",
+                title: "Percentage basis",
+              },
+            ],
+          },
+          (leaf) =>
+            leaf
+              .flags(...readFlags, {
+                description: "Select an existing YYYY-MM budget month",
+                name: "month",
+                required: true,
+                type: "string",
+              })
+              .action(async ({ flags, stdout }) =>
+                print(
+                  stdout,
+                  await allocationReport(await clientFor(flags.budget), flags.month),
+                  flags.compact
+                )
+              )
+        )
+      )
+);
+
+const targetsCommand = defineCommand(
+  "targets",
+  { description: "Inspect stored category targets" },
+  (command) =>
+    command.add(
+      defineCommand(
+        "list",
+        {
+          description: "Read target settings separately from category funds",
+          sections: [
+            {
+              body: "Target settings remain raw, including unknown types and snooze settings. An optional month includes the stored balance. Availability is null when required balance fields are absent. Target progress is not calculated and must not be inferred from category availability.",
+              title: "Target progress",
+            },
+          ],
+        },
+        (leaf) =>
+          leaf
+            .flags(
+              ...readFlags,
+              {
+                description: "Include funds from an existing YYYY-MM budget month",
+                name: "month",
+                type: "string",
+              },
+              {
+                description: "Return the target for this category ID",
+                name: "category",
+                type: "string",
+              }
+            )
+            .action(async ({ flags, stdout }) =>
+              print(
+                stdout,
+                await categoryTargets(await clientFor(flags.budget), {
+                  categoryId: flags.category,
+                  yearMonth: flags.month,
+                }),
+                flags.compact
+              )
+            )
+      )
+    )
+);
+
 export const createApp = (): AnyCrust => {
   const app: AnyCrust = new Crust("bebu", {
     description: metadata.description,
@@ -403,7 +605,15 @@ export const createApp = (): AnyCrust => {
     version: metadata.version,
   })
     .extend(help(), errorOutput)
-    .add(authCommand, sessionCommand, accountsCommand, transactionsCommand, budgetCommand)
+    .add(
+      authCommand,
+      sessionCommand,
+      accountsCommand,
+      transactionsCommand,
+      budgetCommand,
+      allocationsCommand,
+      targetsCommand
+    )
     .add(
       defineCommand(
         "categories",
