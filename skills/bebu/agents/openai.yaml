@@ -1,0 +1,4 @@
+interface:
+  display_name: "Beyond Budget"
+  short_description: "Read and change Beyond Budget accounts and transactions"
+  default_prompt: "Use $bebu to review my Beyond Budget accounts and transactions."

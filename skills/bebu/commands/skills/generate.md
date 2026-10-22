@@ -1,0 +1,27 @@
+# `bebu skills generate`
+
+Generate the bebu skill and command reference
+
+## Usage
+
+```
+bebu skills generate [options]
+```
+
+## Flags
+
+| Flag           | Type    | Required | Description                                                                  |
+| -------------- | ------- | -------- | ---------------------------------------------------------------------------- |
+| `-h`, `--help` | boolean | No       | Show help                                                                    |
+| `--out`        | string  | No       | Replace this output directory. Its name must be skills `[default: "skills"]` |
+
+## Supported syntax
+
+Use only the arguments, flags, aliases, and defaults in this reference. If a feature is absent,
+report that the reference does not document it.
+
+---
+
+Parent: [`bebu skills`](../skills.md)
+
+[Skill overview](../../SKILL.md)
