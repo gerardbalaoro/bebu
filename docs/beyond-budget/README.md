@@ -1,0 +1,121 @@
+# Beyond Budget Integration
+
+This guide helps maintainers extend BeBu from the native app's behavior. The CLI owns financial
+calculations. Generated skills select commands and interpret results without calculating missing
+amounts.
+
+## Current Support
+
+| Need                                                     | Command                |
+| -------------------------------------------------------- | ---------------------- |
+| Category funds for a month                               | `categories funding`   |
+| Raw account links and allocation settings                | `budget diagnostics`   |
+| Allocation records and optional transaction associations | `allocations history`  |
+| Allocated amounts by category and nature                 | `allocations report`   |
+| Positive allocation and spending averages                | `allocations averages` |
+| Raw target settings                                      | `targets list`         |
+| Calculated target funding without a save                 | `allocations preview`  |
+
+Use the [generated command reference](../../skills/bebu/SKILL.md) for arguments and restrictions.
+The preview supports a limited set of flat zero-based budgets and targets. It reports
+`executionSupported: false`. Allocation, reallocation, undo, and smart allocation writes remain
+unsupported.
+
+Transaction dry runs show account balances, category funds, payment reserves, and allocation
+resources. Cleared, completed zero-based income increases allocation resources but does not fund
+categories. Transactions with possible native allocation effects reject deletion and clearing
+changes.
+
+## Data Model
+
+| Document             | Relevant Fields                                                            |
+| -------------------- | -------------------------------------------------------------------------- |
+| Budget               | `availablePeriods`, `stashIdentifiers`, `allocationHistory`                |
+| Group/category stash | `data.groups`, `data.categories`                                           |
+| Account stash        | `data.<accountId>`                                                         |
+| Period               | `balances.<categoryId>`, `allocationAmount`, `allocationCarriedOverAmount` |
+| Category stash       | `data.historicalAllocations.<YYYY-MM>`                                     |
+| Authenticated user   | `config`                                                                   |
+
+Category availability equals `allocatedAmount + carriedOverAmount + otherAmount - spentAmount`.
+Upcoming obligations, target progress, and the budget's unallocated money are separate amounts. A
+funded card purchase reduces expense-category funds and increases the payment category's reserve.
+
+Canonical transactions contain more history than trimmed stash previews or browser caches.
+Transaction writes also maintain indexes, counters, and historical amounts. The canonical document
+alone is not a complete write set.
+
+Account `linkedCategoryId` and category `linkedAccountIds` describe opposite sides of a link.
+Allocation history map keys and stored IDs can differ. Empty `extras` does not exclude automatic
+allocation. History source determines the meaning of its amount fields.
+
+## Rules And Remaining Gaps
+
+[Recovered App Structure](architecture.md) preserves the data types, model construction, service
+paths, persistence rules, and source-specific history meanings.
+
+[Source Reconstruction](source-reconstruction.md) explains what source information survives and
+demonstrates a calculation compared against extracted WASM instructions.
+
+[Savings Target Schedules](target-schedules.md) records the recovered deadline formulas and date
+rules. SAVINGS previews still need implementation and an explicit timezone policy.
+
+[Allocation Persistence](allocation-persistence.md) records save completion, undo, and retry rules.
+The direct writer returns before server confirmation. Undo subtracts the recorded change from the
+current allocation, then separately marks the original history entry.
+
+[Linked Income Allocation](linked-allocation.md) records creation, clearing changes, deletion, and
+their separate history writes. It also identifies a current CLI discrepancy: uncleared income
+changes both account balance fields, while the native handler changes only the uncleared field.
+Clearing changes also omit the native movement in the cleared balance and account history.
+
+[Smart Allocation](smart-allocation.md) records upcoming membership, category priority, and phase
+overlap. A restricted preview can cover overspending and supported targets when upcoming entries and
+balances are empty. Smart planning still needs implementation.
+
+[Allocation Rules](allocation-contract.md) contains the recovered formulas, defaults, ordering, and
+save boundaries. Those findings come from static analysis and read-only app observations in
+October 2026. No native allocation mutation fixture exists. Synthetic tests do not establish
+complete parity.
+
+Remaining work includes:
+
+- Allocation saves, later-period carryover, undo, and request identity.
+- Linked-account allocation and its reversal effects.
+- Parent and surplus coverage, including their precedence.
+- Smart planning, upcoming-stash completeness, and upstream recurring-transaction effects.
+- Savings/deadline targets, historical replacement, and equal stored-order ties.
+
+Reallocation is a separate transaction flow, not two manual allocations. History deletion does not
+undo an allocation. A surplus forecast does not prove that money was allocated.
+
+Current save markers prove existence only. They do not bind a request ID to operation content.
+Retries also depend on marker expiry and validation before commit.
+
+## Validate New Writes
+
+1. Use an authorized disposable budget for native mutation experiments.
+2. Record the budget type, month, timezone, links, settings, and affected documents before one
+   action.
+3. Compare backend documents after synchronization, including history, indexes, and later periods.
+4. Capture undo separately and remove personal data from fixtures.
+5. Test stale versions, identical retries, changed payloads, insufficient funds, and unsupported
+   inputs.
+
+Reuse one browser window without focus changes. The app needs WebGL2 and a visible tab to repaint.
+If accessibility snapshots are stale, inspect a fresh screenshot. Strategy selections can save
+immediately. Report views can change interaction counters even without a financial submission.
+
+## Source Of Truth
+
+[Command definitions](../../src/cli/app.ts) define CLI syntax.
+[Transaction code](../../src/budget/transactions.ts) defines supported transaction effects.
+[The skill generator](../../src/cli/skills.ts) owns workflow guidance. Regenerate skills with
+`bun run skills` after changes to command definitions or guidance.
+
+Product references:
+[Auto-Allocation](https://www.beyondbudgetapp.com/quality-of-life/auto-allocation),
+[Targets](https://www.beyondbudgetapp.com/basics/targets),
+[Allocation History](https://www.beyondbudgetapp.com/basics/allocation-history),
+[Surplus Funds](https://www.beyondbudgetapp.com/basics/surplus-funds-overview). Product descriptions
+do not establish complete database effects.
