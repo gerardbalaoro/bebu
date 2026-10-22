@@ -117,6 +117,11 @@ export const transactionSummary = (
 
   return {
     accounts: accountChanges(plan, transaction),
+    allocationResources: transaction.periodId
+      ? plan.amountChange(`${plan.client.budgetPath}/periods/${transaction.periodId}`, [
+          "allocationAmount",
+        ])
+      : undefined,
     automaticAllocation: false,
     categories: categoryChanges(plan, transaction),
     operation,

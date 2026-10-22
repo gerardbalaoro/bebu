@@ -39,8 +39,9 @@ default.
 ## Allocation requests
 
 For allocation writes, overspending coverage, or allocation undo, use the native Beyond Budget app.
-CLI income does not fund categories. Native income allocation, linked-account allocation, and bulk
-allocation are separate workflows. Their availability depends on the native app and its settings.
+CLI income does not fund categories. Cleared, completed income increases allocation resources in a
+zero-based budget. Native income allocation, linked-account allocation, and bulk allocation are
+separate workflows. Their availability depends on the native app and its settings.
 
 A completed CLI card expense needs sufficient category funds and increases the linked payment
 category's otherAmount. This payment reserve effect does not enable automatic allocation.
@@ -48,10 +49,14 @@ category's otherAmount. This payment reserve effect does not enable automatic al
 ## Preview and retry
 
 Before a transaction change, inspect --dry-run. The summary shows metadata, account balances,
-category funds, and payment reserves before and after. The summary explicitly reports
+category funds, and allocation resources before and after. The summary explicitly reports
 automaticAllocation:false. Add --full to inspect the Firestore writes and preconditions. A preview
 describes the current snapshots. A later command reads fresh snapshots and can produce different
 results.
+
+Transactions with confirmed or possible native allocation effects reject deletion and clearing
+changes. Notes and color remain editable within the command's other restrictions. Do not remove
+allocation flags or history to bypass a rejection.
 
 For an identical retry, reuse the request ID and original payload. For a different operation, use a
 new request ID. For create retries, preserve the resolved id, dueAt, timezone, completed, and

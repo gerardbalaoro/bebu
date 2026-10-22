@@ -245,6 +245,88 @@ const writeAt = (writes: Write[], suffix: string): Write => {
   return write;
 };
 
+test("deleting native income cannot leave a linked allocation behind when extras are empty", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    amount: 250,
+    targetFrom: null,
+    targetTo: { id: "cash", linkedObjectId: null, linkedObjectType: null, type: "GENERIC_ACCOUNT" },
+    type: "INFLOW",
+  });
+  documents.set(budgetPath, {
+    ...documents.get(budgetPath),
+    allocationHistory: {
+      differentMapKey: { id: transactionId, source: "LINKED_CATEGORY", undoneAt: null },
+    },
+  });
+  await expect(service.delete(transactionId)).rejects.toThrow("allocation");
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("an allocation history map key blocks deletion even when the entry ID is empty", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(budgetPath, {
+    ...documents.get(budgetPath),
+    allocationHistory: { [transactionId]: { id: "", source: "FUTURE_SOURCE", undoneAt: null } },
+  });
+  await expect(service.delete(transactionId)).rejects.toThrow("allocation");
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("possible automatic allocation blocks financial changes but permits a notes-only edit", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    autoAllocateIfCapable: true,
+    autoAllocateIfIncome: true,
+  });
+  await expect(service.delete(transactionId)).rejects.toThrow("allocation");
+  await expect(service.update(transactionId, { cleared: false })).rejects.toThrow("allocation");
+
+  const writes = writesFrom(
+    await service.update(transactionId, { notes: "reviewed" }, { dryRun: true })
+  );
+
+  expect(writeAt(writes, `transactions/${transactionId}`).updateMask?.fieldPaths).toEqual([
+    "notes",
+  ]);
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("conflicting account and category links cannot route card reserves to the wrong category", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(`${budgetPath}/stashes/accountsIndex`, {
+    data: {
+      card: {
+        id: "card",
+        linkedCategoryId: "differentCategory",
+        name: "Card",
+        type: "CREDIT_CARD",
+      },
+    },
+  });
+  await expect(
+    service.create({ accountId: "card", amountMinor: 100, categoryId: "spend", dueAt: timestamp })
+  ).rejects.toThrow("link");
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("clearing a refund cannot apply ordinary income rules and malformed history cannot bypass protection", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    extras: { refund: true },
+  });
+  await expect(
+    service.update(transactionId, { cleared: false }, { dryRun: true })
+  ).rejects.toThrow();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, canonicalTransaction);
+  documents.set(budgetPath, { ...documents.get(budgetPath), allocationHistory: null });
+  await expect(service.delete(transactionId, { dryRun: true })).rejects.toThrow();
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
 test("card expenses debit the account, fund the payment category, and index the same transaction atomically", async () => {
   const { service, calls } = fixture();
 
@@ -330,6 +412,101 @@ test("income without a zero-based budget type credits cash without changing allo
     ])
   );
   expect(writes.some((write) => write.update?.name === `${budgetPath}/periods/periodOne`)).toBe(
+    false
+  );
+});
+
+test("cleared zero-based income increases allocation resources without funding a category", async () => {
+  const { service, documents } = fixture();
+  documents.set(budgetPath, { ...documents.get(budgetPath), type: "ZERO_BASED" });
+
+  const result = await service.create(
+    {
+      accountId: "cash",
+      amountMinor: 125,
+      cleared: true,
+      completed: true,
+      dueAt: timestamp,
+      type: "INFLOW",
+    },
+    { dryRun: true }
+  );
+
+  const writes = writesFrom(result);
+  expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual([
+    { fieldPath: "allocationAmount", increment: { integerValue: "125" } },
+  ]);
+  expect(result.automaticAllocation).toBe(false);
+  expect(result.summary?.allocationResources).toEqual({
+    after: 50_125,
+    before: 50_000,
+    delta: 125,
+  });
+
+  const uncleared = writesFrom(
+    await service.create(
+      {
+        accountId: "cash",
+        amountMinor: 125,
+        cleared: false,
+        completed: true,
+        dueAt: timestamp,
+        type: "INFLOW",
+      },
+      { dryRun: true }
+    )
+  );
+
+  expect(uncleared.some((write) => write.update?.name === `${budgetPath}/periods/periodOne`)).toBe(
+    false
+  );
+});
+
+test("deletion and clearing changes adjust only independent income's zero-based allocation resources", async () => {
+  const { service, documents } = fixture();
+  documents.set(budgetPath, { ...documents.get(budgetPath), type: "ZERO_BASED" });
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    amount: 250,
+    targetFrom: null,
+    targetTo: { id: "cash", linkedObjectId: null, linkedObjectType: null, type: "GENERIC_ACCOUNT" },
+    type: "INFLOW",
+  });
+  const deleted = writesFrom(await service.delete(transactionId, { dryRun: true }));
+  expect(writeAt(deleted, "periods/periodOne").updateTransforms).toEqual([
+    { fieldPath: "allocationAmount", increment: { integerValue: "-250" } },
+  ]);
+
+  const uncleared = writesFrom(
+    await service.update(transactionId, { cleared: false }, { dryRun: true })
+  );
+
+  expect(writeAt(uncleared, "periods/periodOne").updateTransforms).toEqual([
+    { fieldPath: "allocationAmount", increment: { integerValue: "-250" } },
+  ]);
+
+  const income = documents.get(`${budgetPath}/transactions/${transactionId}`);
+  documents.set(`${budgetPath}/transactions/${transactionId}`, { ...income, cleared: false });
+
+  const cleared = writesFrom(
+    await service.update(transactionId, { cleared: true }, { dryRun: true })
+  );
+
+  expect(writeAt(cleared, "periods/periodOne").updateTransforms).toEqual([
+    { fieldPath: "allocationAmount", increment: { integerValue: "250" } },
+  ]);
+
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...income,
+    cleared: false,
+    completed: false,
+  });
+
+  const upcoming = writesFrom(
+    await service.update(transactionId, { cleared: true }, { dryRun: true })
+  );
+
+  expect(upcoming.some((write) => write.update?.name === `${budgetPath}/periods/periodOne`)).toBe(
     false
   );
 });

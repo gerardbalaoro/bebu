@@ -13,6 +13,7 @@ import type {
 } from "../firestore/encoding.ts";
 import { AccountsSchema } from "./accounts.ts";
 import type { Account } from "./accounts.ts";
+import { requireIndependentTransaction } from "./allocation-effects.ts";
 import { LabelsSchema } from "./labels.ts";
 import { CategoriesSchema, PeriodSchema, categoryAvailable } from "./model.ts";
 import type { Category } from "./model.ts";
@@ -301,6 +302,16 @@ const makeTarget = (
 
   if (linked.length > 1) {
     throw new Error("Account has multiple linked categories");
+  }
+
+  if (account.linkedCategoryId !== undefined) {
+    const accountLink = z.string().nullable().parse(account.linkedCategoryId) || null;
+
+    if (accountLink !== (linked[0]?.id ?? null)) {
+      throw new Error(
+        "Account and category links disagree. Resolve the links in the app before this transaction"
+      );
+    }
   }
 
   return {
@@ -633,6 +644,11 @@ export class TransactionService {
       }
     } else if (transaction.type === "INFLOW" && transaction.completed) {
       await accountEffects(requireTarget(transaction.targetTo), delta);
+
+      // Native 51745 adds cleared zero-based income to allocation resources, independently of category allocation.
+      if (transaction.cleared && context.budget.data.type === "ZERO_BASED") {
+        await increment(periodPath, ["allocationAmount"], delta);
+      }
     }
 
     if (transaction.completed) {
@@ -707,6 +723,7 @@ export class TransactionService {
     const context = await this.context();
     const doc = await this.transaction(id);
     const transaction = doc.data;
+    requireIndependentTransaction(transaction, context.budget.data);
     supported(transaction);
     const plan = new MutationPlan(this.client);
     plan.extra.push({ currentDocument: { updateTime: doc.updateTime }, delete: doc.name });
@@ -737,9 +754,14 @@ export class TransactionService {
       }
     }
 
-    await this.client.discover();
+    const budget = await this.client.discover();
     const doc = await this.transaction(id);
     const transaction = doc.data;
+
+    if (changes.cleared !== undefined && changes.cleared !== transaction.cleared) {
+      requireIndependentTransaction(transaction, budget.data);
+      supported(transaction);
+    }
 
     if (transaction.splitId || transaction.frequency !== "ONE_OFF" || transaction.reconciled) {
       throw new Error("bebu changes only unreconciled, one-off transactions");
@@ -774,6 +796,20 @@ export class TransactionService {
       const from = transaction.targetFrom;
       const to = transaction.targetTo;
       const accountPath = `${this.client.budgetPath}/stashes/${this.client.stashId("ACCOUNTS")}`;
+
+      if (transaction.type === "INFLOW" && budget.data.type === "ZERO_BASED") {
+        if (!transaction.periodId) {
+          throw new Error(
+            "The income has no budget period. Resolve it in the app before changing cleared status"
+          );
+        }
+
+        await plan.increment(
+          `${this.client.budgetPath}/periods/${transaction.periodId}`,
+          ["allocationAmount"],
+          -direction * transaction.amount
+        );
+      }
 
       if (from && from.type !== "CATEGORY") {
         await plan.increment(
