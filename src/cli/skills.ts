@@ -39,6 +39,36 @@ A global CLI installation is not required.
 4. Use only the arguments, flags, aliases, and defaults in that reference.
 5. If a feature is absent, report that the reference does not document it.
 
+## Money and category funds
+
+Account balances describe money or debt in accounts. Category funds describe budget assignments for a specific month.
+For category funds, use categories funding with an explicit month. Keep otherAmount and carryover in the available amount.
+Upcoming obligations are separate from available funds. This query does not calculate ready-to-allocate funds or parent totals.
+
+For account/category links or allocation settings, use budget diagnostics. Report the returned values with their document paths.
+Unknown values and absent settings have no inferred meaning or default.
+
+## Allocation requests
+
+For allocation writes, overspending coverage, or allocation undo, use the native Beyond Budget app.
+CLI income does not fund categories.
+Native income allocation, linked-account allocation, and bulk allocation are separate workflows. Their availability depends on the native app and its settings.
+
+A completed CLI card expense needs sufficient category funds and increases the linked payment category's otherAmount.
+This payment reserve effect does not enable automatic allocation.
+
+## Preview and retry
+
+Before a transaction change, inspect --dry-run. The summary shows metadata, account balances, category funds, and payment reserves before and after.
+The summary explicitly reports automaticAllocation:false. Add --full to inspect the Firestore writes and preconditions.
+A preview describes the current snapshots. A later command reads fresh snapshots and can produce different results.
+
+For an identical retry, reuse the request ID and original payload. For a different operation, use a new request ID.
+For create retries, preserve the resolved id, dueAt, timezone, completed, and cleared fields.
+
+Save markers do not bind request IDs to payloads. An alreadyCommitted result proves marker existence only.
+A retry can fail before marker lookup, including after deletion. After marker expiry, duplicate detection is not guaranteed.
+
 ## Command reference
 
 `;
@@ -49,7 +79,7 @@ export const generateSkills = async (app: AnyCrust, output = "skills") => {
   const files = await writeSkills({
     app,
     description:
-      "Use for Beyond Budget sign-in, balance and history queries, account configuration, and transaction creation, metadata changes, or deletion.",
+      "Use for Beyond Budget sign-in, account balances, category funds, allocation diagnostics, history queries, account configuration, and transaction changes.",
     outDir,
     version: metadata.version,
   });

@@ -186,6 +186,7 @@ export class BeyondClient {
       return { commitTime: response.commitTime, committed: true, requestId, writes: writes.length };
     } catch (error) {
       // A lost response can occur after a successful commit. The commit includes the marker atomically.
+      // Marker existence does not bind this request ID to an operation or payload.
       const landed = await this.readMarker(marker);
 
       if (landed) {

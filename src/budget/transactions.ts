@@ -32,6 +32,7 @@ import type {
   TransactionCreate,
   TransactionPatch,
 } from "./transaction-model.ts";
+import { transactionSummary } from "./transaction-summary.ts";
 
 type TransactionContext = Awaited<ReturnType<TransactionService["context"]>>;
 
@@ -122,6 +123,28 @@ export class MutationPlan {
     }
 
     entry.increments.set(field, accumulated);
+  }
+  amountChange(name: string, path: string[]) {
+    const entry = this.docs.get(name);
+
+    if (!entry) {
+      return;
+    }
+
+    const before = z
+      .number()
+      .int()
+      .safe()
+      .parse(get(entry.doc.data, path) ?? 0);
+
+    const delta = entry.increments.get(fieldPath(...path)) ?? 0;
+    const after = before + delta;
+
+    if (!Number.isSafeInteger(after)) {
+      throw new TypeError("The resulting amount must be a safe integer");
+    }
+
+    return { after, before, delta };
   }
   writes(): Write[] {
     const writes = [...this.extra];
@@ -504,9 +527,10 @@ export class TransactionService {
       update: { fields: encodeFields(wire), name: `${this.client.budgetPath}/transactions/${id}` },
     });
     await this.apply(plan, transaction, 1, context);
+    const summary = options.dryRun ? transactionSummary(plan, null, transaction) : undefined;
     const result = await this.client.commit(plan.writes(), options);
 
-    return { ...result, automaticAllocation: false, transactionId: id };
+    return { ...result, automaticAllocation: false, summary, transactionId: id };
   }
   indexPaths(transaction: Transaction): string[] {
     const ids = [
@@ -688,9 +712,13 @@ export class TransactionService {
     plan.extra.push({ currentDocument: { updateTime: doc.updateTime }, delete: doc.name });
     await this.apply(plan, transaction, -1, context);
 
+    const summary = options.dryRun ? transactionSummary(plan, transaction, null) : undefined;
+
     return {
       ...(await this.client.commit(plan.writes(), options)),
+      automaticAllocation: false,
       deleted: true,
+      summary,
       transactionId: id,
     };
   }
@@ -764,7 +792,16 @@ export class TransactionService {
       }
     }
 
-    return { ...(await this.client.commit(plan.writes(), options)), transactionId: id };
+    const summary = options.dryRun
+      ? transactionSummary(plan, transaction, { ...transaction, ...changes })
+      : undefined;
+
+    return {
+      ...(await this.client.commit(plan.writes(), options)),
+      automaticAllocation: false,
+      summary,
+      transactionId: id,
+    };
   }
   async list({
     limit = 20,

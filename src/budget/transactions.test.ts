@@ -1,13 +1,20 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import nodePath from "node:path";
 
+import { captureExecute } from "@crustjs/testing";
 import { z } from "zod";
 
 import type { Session } from "../auth/session.ts";
+import { createApp } from "../cli/app.ts";
 import { BeyondClient } from "../firestore/client.ts";
 import type { Fetcher } from "../firestore/client.ts";
 import { encodeFields } from "../firestore/encoding.ts";
 import type { CommitResult, Data, Write } from "../firestore/encoding.ts";
 import { AccountService } from "./accounts.ts";
+import { budgetDiagnostics } from "./diagnostics.ts";
+import { categoryFunding } from "./funding.ts";
 import { TransactionService } from "./transactions.ts";
 
 const budgetPath = "projects/beyond-budget/databases/(default)/documents/budgets/testBudget";
@@ -215,7 +222,7 @@ const fixture = () => {
 
   const client = new BeyondClient(structuredClone(session), { fetcher });
 
-  return { calls, client, documents, service: new TransactionService(client) };
+  return { calls, client, documents, fetcher, service: new TransactionService(client) };
 };
 
 const writesFrom = (result: CommitResult): Write[] => {
@@ -307,7 +314,7 @@ test("card expenses debit the account, fund the payment category, and index the 
   expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 
-test("income credits cash without changing allocationAmount or category spending", async () => {
+test("income without a zero-based budget type credits cash without changing allocation resources or category spending", async () => {
   const { service } = fixture();
 
   const writes = writesFrom(
@@ -599,4 +606,376 @@ test("account history queries both target directions without an unavailable comp
       },
     },
   });
+});
+
+test("monthly funding includes other funds and carryover but keeps upcoming obligations separate", async () => {
+  const { client, documents, calls } = fixture();
+  documents.set(`${budgetPath}/periods/periodOne`, {
+    balances: {
+      cardCategory: { otherAmount: 250 },
+      orphan: { allocatedAmount: 20 },
+      spend: {
+        allocatedAmount: 1000,
+        carriedOverAmount: -100,
+        otherAmount: 75,
+        spentAmount: 400,
+        upcomingAmount: 900,
+      },
+    },
+  });
+  const result = await categoryFunding(client, "2026-10");
+  expect(result).toMatchObject({ periodId: "periodOne", yearMonth: "2026-10" });
+  expect(result.categories).toEqual([
+    {
+      allocatedAmount: 0,
+      availableAmount: 250,
+      carriedOverAmount: 0,
+      id: "cardCategory",
+      otherAmount: 250,
+      spentAmount: 0,
+      type: "CREDIT_CARD_PAYMENT",
+      upcomingAmount: 0,
+    },
+    {
+      allocatedAmount: 1000,
+      availableAmount: 575,
+      carriedOverAmount: -100,
+      id: "spend",
+      otherAmount: 75,
+      spentAmount: 400,
+      type: "DEFAULT",
+      upcomingAmount: 900,
+    },
+    {
+      allocatedAmount: 20,
+      availableAmount: 20,
+      carriedOverAmount: 0,
+      id: "orphan",
+      otherAmount: 0,
+      spentAmount: 0,
+      upcomingAmount: 0,
+    },
+  ]);
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("funding queries reject missing months and categories instead of inventing balances", async () => {
+  const { client, calls } = fixture();
+  await expect(categoryFunding(client, "2026-13")).rejects.toThrow("YYYY-MM");
+  expect(calls).toHaveLength(0);
+  await expect(categoryFunding(client, "2026-09")).rejects.toThrow("does not exist");
+  await expect(categoryFunding(client, "2026-10", "missing")).rejects.toThrow("Category not found");
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("funding queries reject unsafe money and retain zero funds for categories without a balance", async () => {
+  const { client, documents } = fixture();
+  documents.set(`${budgetPath}/periods/periodOne`, {});
+  const empty = await categoryFunding(client, "2026-10", "spend");
+  expect(empty.categories).toEqual([
+    {
+      allocatedAmount: 0,
+      availableAmount: 0,
+      carriedOverAmount: 0,
+      id: "spend",
+      otherAmount: 0,
+      spentAmount: 0,
+      type: "DEFAULT",
+      upcomingAmount: 0,
+    },
+  ]);
+  documents.set(`${budgetPath}/periods/periodOne`, {
+    balances: { spend: { allocatedAmount: Number.MAX_SAFE_INTEGER, otherAmount: 1 } },
+  });
+  await expect(categoryFunding(client, "2026-10")).rejects.toThrow("safe integer");
+  documents.set(`${budgetPath}/periods/periodOne`, {
+    balances: { spend: { allocatedAmount: 1.5 } },
+  });
+  await expect(categoryFunding(client, "2026-10")).rejects.toThrow();
+});
+
+test("diagnostics preserve conflicting raw links and unknown settings at their observed paths", async () => {
+  const { client, documents, calls } = fixture();
+  documents.set(`${budgetPath}/stashes/accountsIndex`, {
+    data: { card: { id: "card", linkedCategoryId: "differentCategory", type: "CREDIT_CARD" } },
+  });
+  documents.set(`${budgetPath}/stashes/categoriesIndex`, {
+    data: {
+      categories: {
+        cardCategory: {
+          id: "cardCategory",
+          linkedAccountIds: ["card", "missing"],
+          type: "FUTURE_TYPE",
+        },
+        strange: { id: "strange", linkedAccountIds: { future: true }, type: 81 },
+      },
+    },
+  });
+  documents.set("projects/beyond-budget/databases/(default)/documents/users/testUser", {
+    config: { autoAllocateIncomeEnabled: true, unknownPreference: { mode: 91 } },
+  });
+  const result = await budgetDiagnostics(client);
+  expect(result.links).toEqual([
+    {
+      document: `${budgetPath}/stashes/accountsIndex`,
+      path: ["data", "card", "linkedCategoryId"],
+      value: "differentCategory",
+    },
+    {
+      document: `${budgetPath}/stashes/categoriesIndex`,
+      path: ["data", "categories", "cardCategory", "linkedAccountIds"],
+      value: ["card", "missing"],
+    },
+    {
+      document: `${budgetPath}/stashes/categoriesIndex`,
+      path: ["data", "categories", "strange", "linkedAccountIds"],
+      value: { future: true },
+    },
+  ]);
+  expect(result.settings).toContainEqual({
+    document: "projects/beyond-budget/databases/(default)/documents/users/testUser",
+    path: ["config"],
+    value: { autoAllocateIncomeEnabled: true, unknownPreference: { mode: 91 } },
+  });
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("card dry runs distinguish account debt, spending funds, and payment reserves", async () => {
+  const { service } = fixture();
+
+  const result = await service.create(
+    { accountId: "card", amountMinor: 250, categoryId: "spend", completed: true, dueAt: timestamp },
+    { dryRun: true }
+  );
+
+  expect(result.summary).toMatchObject({
+    accounts: [
+      {
+        balanceAmount: { after: -500, before: -250, delta: -250 },
+        id: "card",
+        unclearedBalanceAmount: { after: 0, before: 0, delta: 0 },
+      },
+    ],
+    automaticAllocation: false,
+    categories: [
+      {
+        after: { availableAmount: 49_500, spentAmount: 500 },
+        before: { availableAmount: 49_750, spentAmount: 250 },
+        id: "spend",
+        role: "expense",
+        yearMonth: "2026-10",
+      },
+      {
+        after: { availableAmount: 500, otherAmount: 500 },
+        before: { availableAmount: 250, otherAmount: 250 },
+        id: "cardCategory",
+        role: "cardPaymentReserve",
+      },
+    ],
+    operation: "create",
+    transaction: { after: { amount: -250, cleared: true, completed: true }, before: null },
+  });
+});
+
+test("income and upcoming previews show only their actual money effects", async () => {
+  const { service } = fixture();
+
+  const income = await service.create(
+    {
+      accountId: "cash",
+      amountMinor: 125,
+      cleared: false,
+      completed: true,
+      dueAt: timestamp,
+      type: "INFLOW",
+    },
+    { dryRun: true }
+  );
+
+  expect(income.summary).toMatchObject({
+    accounts: [
+      {
+        balanceAmount: { after: 10_125, before: 10_000, delta: 125 },
+        id: "cash",
+        unclearedBalanceAmount: { after: 125, before: 0, delta: 125 },
+      },
+    ],
+    automaticAllocation: false,
+    categories: [],
+  });
+
+  const upcoming = await service.create(
+    {
+      accountId: "card",
+      amountMinor: 100,
+      categoryId: "spend",
+      completed: false,
+      dueAt: timestamp,
+    },
+    { dryRun: true }
+  );
+
+  expect(upcoming.summary).toMatchObject({
+    accounts: [],
+    categories: [
+      {
+        after: { availableAmount: 49_750, upcomingAmount: 100 },
+        before: { availableAmount: 49_750, upcomingAmount: 0 },
+        id: "spend",
+      },
+    ],
+  });
+});
+
+test("delete and cleared previews show reversal and uncleared changes without allocating", async () => {
+  const { service } = fixture();
+  const deleted = await service.delete(transactionId, { dryRun: true });
+  expect(deleted.summary).toMatchObject({
+    accounts: [{ balanceAmount: { after: 0, before: -250, delta: 250 }, id: "card" }],
+    automaticAllocation: false,
+    categories: [
+      { after: { availableAmount: 50_000 }, before: { availableAmount: 49_750 }, id: "spend" },
+      {
+        after: { otherAmount: 0 },
+        before: { otherAmount: 250 },
+        id: "cardCategory",
+        role: "cardPaymentReserve",
+      },
+    ],
+    operation: "delete",
+    transaction: { after: null, before: { id: transactionId } },
+  });
+
+  const edited = await service.update(
+    transactionId,
+    { cleared: false, notes: "corrected" },
+    { dryRun: true }
+  );
+
+  expect(edited.summary).toMatchObject({
+    accounts: [
+      {
+        balanceAmount: { after: -250, before: -250, delta: 0 },
+        id: "card",
+        unclearedBalanceAmount: { after: -250, before: 0, delta: -250 },
+      },
+    ],
+    automaticAllocation: false,
+    categories: [],
+    operation: "update",
+    transaction: {
+      after: { cleared: false, notes: "corrected" },
+      before: { cleared: true, notes: "" },
+    },
+  });
+});
+
+test("CLI funding, diagnostics, and compact dry runs expose semantic results without writes", async () => {
+  const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-funding-cli-"));
+  const previous = process.env.BEBU_SESSION_FILE;
+  const { fetcher, calls } = fixture();
+
+  const fetchMock = spyOn(globalThis, "fetch").mockImplementation(
+    Object.assign(fetcher, { preconnect: fetch.preconnect })
+  );
+
+  process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+
+  try {
+    await writeFile(process.env.BEBU_SESSION_FILE, JSON.stringify(session));
+
+    const funding = await captureExecute(createApp(), [
+      "categories",
+      "funding",
+      "--month",
+      "2026-10",
+      "--category",
+      "spend",
+    ]);
+
+    expect(funding.exitCode).toBe(0);
+    expect(JSON.parse(funding.stdout)).toMatchObject({
+      categories: [{ availableAmount: 49_750, id: "spend", otherAmount: 0 }],
+    });
+    const diagnostics = await captureExecute(createApp(), ["budget", "diagnostics"]);
+    expect(diagnostics.exitCode).toBe(0);
+    expect(JSON.parse(diagnostics.stdout)).toMatchObject({
+      links: [
+        { path: ["data", "categories", "cardCategory", "linkedAccountIds"], value: ["card"] },
+        { path: ["data", "categories", "spend", "linkedAccountIds"], value: [] },
+      ],
+    });
+
+    const payload = nodePath.join(directory, "transaction.json");
+    await writeFile(
+      payload,
+      JSON.stringify({
+        accountId: "cash",
+        amountMinor: 125,
+        completed: true,
+        dueAt: timestamp,
+        type: "INFLOW",
+      })
+    );
+
+    const preview = await captureExecute(createApp(), [
+      "transactions",
+      "create",
+      "--dry-run",
+      "--file",
+      payload,
+    ]);
+
+    expect(preview.exitCode).toBe(0);
+    const result = JSON.parse(preview.stdout);
+    expect(result).toMatchObject({
+      automaticAllocation: false,
+      dryRun: true,
+      summary: {
+        accounts: [{ balanceAmount: { after: 10_125, before: 10_000, delta: 125 }, id: "cash" }],
+      },
+    });
+    expect(result.body).toBeUndefined();
+
+    const full = await captureExecute(createApp(), [
+      "transactions",
+      "create",
+      "--dry-run",
+      "--full",
+      "--file",
+      payload,
+    ]);
+
+    expect(full.exitCode).toBe(0);
+    expect(JSON.parse(full.stdout)).toMatchObject({
+      body: { writes: expect.any(Array) },
+      summary: { categories: [] },
+    });
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+  } finally {
+    fetchMock.mockRestore();
+
+    if (previous === undefined) {
+      delete process.env.BEBU_SESSION_FILE;
+    } else {
+      process.env.BEBU_SESSION_FILE = previous;
+    }
+
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test("funding preserves exact available money when large intermediate sums exceed safe integers", async () => {
+  const { client, documents } = fixture();
+  documents.set(`${budgetPath}/periods/periodOne`, {
+    balances: {
+      spend: {
+        allocatedAmount: 9_007_199_254_740_991,
+        carriedOverAmount: 2,
+        otherAmount: -2,
+      },
+    },
+  });
+  const result = await categoryFunding(client, "2026-10", "spend");
+  expect(result.categories[0]?.availableAmount).toBe(9_007_199_254_740_991);
 });

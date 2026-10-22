@@ -40,7 +40,8 @@ profile.
 Before a change:
 
 1. Use schema to find the accepted JSON fields.
-2. Use --dry-run --full to inspect all changes before the commit.
+2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect
+   all writes.
 
 Amounts use integer minor units (PHP centavos). bebu changes only one-off expenses and income
 without reconciliation. Transfers, allocations, splits, repeats, refunds, debts, files, and linked
@@ -49,12 +50,15 @@ transactions require separate flows. A completed card expense requires a categor
 Transaction metadata changes accept notes, color, and cleared. The --request-id flag identifies the
 atomic commit and its save marker.
 
-For the same operation, reuse --request-id. For a different operation, use a new request ID.
+For an identical retry, reuse --request-id and the original payload. For a different operation, use
+a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves
+marker existence only. Marker expiry and validation before the commit also limit retries.
 
 ## Subcommands
 
 - [`accounts`](accounts.md) - Read accounts and change their configuration
 - [`auth`](auth.md) - Sign in through your browser and manage the saved connection
+- [`budget`](budget.md) - Read budget diagnostics
 - [`categories`](categories.md) - Read expense and payment categories
 - [`payees`](payees.md) - Read payees
 - [`schema`](schema.md) - Show JSON schemas for write payloads

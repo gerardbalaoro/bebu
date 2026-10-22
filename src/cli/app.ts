@@ -16,6 +16,8 @@ import { authCommand, sessionCommand } from "../auth/commands.ts";
 import { AuthError } from "../auth/login.ts";
 import { loadSession } from "../auth/session.ts";
 import { AccountPatchSchema, AccountService } from "../budget/accounts.ts";
+import { budgetDiagnostics } from "../budget/diagnostics.ts";
+import { categoryFunding } from "../budget/funding.ts";
 import { LabelsSchema } from "../budget/labels.ts";
 import { CategoriesSchema } from "../budget/model.ts";
 import { TransactionCreateSchema, TransactionPatchSchema } from "../budget/transaction-model.ts";
@@ -47,7 +49,8 @@ const dryRunFlag = defineFlag("dry-run", {
 });
 
 const requestFlag = defineFlag("request-id", {
-  description: "Identify this commit with exactly 20 letters or digits",
+  description:
+    "Identify one operation with 20 letters or digits. Reuse only for an identical retry",
   type: "string",
 });
 
@@ -321,6 +324,65 @@ const transactionsCommand = defineCommand(
       )
 );
 
+const fundingCommand = defineCommand(
+  "funding",
+  {
+    description: "Read category funds for one month in integer minor units",
+    sections: [
+      {
+        body: "Available funds equal allocatedAmount + carriedOverAmount + otherAmount - spentAmount. upcomingAmount is separate. Missing amount fields count as zero. Categories without a balance have zero funds. Balance IDs absent from the category index remain visible.\n\nAccount balances describe account money. Category funds describe its budget assignment. This query does not calculate ready-to-allocate funds or parent totals.",
+        title: "Funding amounts",
+      },
+    ],
+  },
+  (command) =>
+    command
+      .flags(
+        ...readFlags,
+        {
+          description: "Select an existing budget month in YYYY-MM format",
+          name: "month",
+          required: true,
+          type: "string",
+        },
+        { description: "Return only this category ID", name: "category", type: "string" }
+      )
+      .action(async ({ flags, stdout }) => {
+        const result = await categoryFunding(
+          await clientFor(flags.budget),
+          flags.month,
+          flags.category
+        );
+
+        print(stdout, result, flags.compact);
+      })
+);
+
+const budgetCommand = defineCommand(
+  "budget",
+  { description: "Read budget diagnostics" },
+  (command) =>
+    command.add(
+      defineCommand(
+        "diagnostics",
+        {
+          description:
+            "Read stored account/category links and allocation settings with their source paths",
+          sections: [
+            {
+              body: "This command reads the budget, user, accounts index, and categories index. It returns stored link fields, config objects, and recognized allocation setting names. Values remain raw, including unknown enums and conflicting links. An absent field has no inferred default. The output does not establish native behavior or list every possible setting.",
+              title: "Observed fields",
+            },
+          ],
+        },
+        (leaf) =>
+          leaf.flags(...readFlags).action(async ({ flags, stdout }) => {
+            print(stdout, await budgetDiagnostics(await clientFor(flags.budget)), flags.compact);
+          })
+      )
+    )
+);
+
 export const createApp = (): AnyCrust => {
   const app: AnyCrust = new Crust("bebu", {
     description: metadata.description,
@@ -334,20 +396,20 @@ export const createApp = (): AnyCrust => {
         title: "Browser session",
       },
       {
-        body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run --full to inspect all changes before the commit.\n\nAmounts use integer minor units (PHP centavos). bebu changes only one-off expenses and income without reconciliation. Transfers, allocations, splits, repeats, refunds, debts, files, and linked transactions require separate flows. A completed card expense requires a category with enough funds.\n\nTransaction metadata changes accept notes, color, and cleared. The --request-id flag identifies the atomic commit and its save marker.\n\nFor the same operation, reuse --request-id. For a different operation, use a new request ID.",
+        body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu changes only one-off expenses and income without reconciliation. Transfers, allocations, splits, repeats, refunds, debts, files, and linked transactions require separate flows. A completed card expense requires a category with enough funds.\n\nTransaction metadata changes accept notes, color, and cleared. The --request-id flag identifies the atomic commit and its save marker.\n\nFor an identical retry, reuse --request-id and the original payload. For a different operation, use a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves marker existence only. Marker expiry and validation before the commit also limit retries.",
         title: "Write rules",
       },
     ],
     version: metadata.version,
   })
     .extend(help(), errorOutput)
-    .add(authCommand, sessionCommand, accountsCommand, transactionsCommand)
+    .add(authCommand, sessionCommand, accountsCommand, transactionsCommand, budgetCommand)
     .add(
       defineCommand(
         "categories",
         { description: "Read expense and payment categories" },
         (command) =>
-          command.add(
+          command.add(fundingCommand).add(
             defineCommand("list", { description: "List category IDs and types" }, (leaf) =>
               leaf.flags(...readFlags).action(async ({ flags, stdout }) => {
                 const clientForResult = await clientFor(flags.budget);
