@@ -2,13 +2,13 @@
 import { readFile, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 
-import * as puppeteer from "puppeteer-core";
 import type { Browser, ConnectOptions, Page } from "puppeteer-core";
 import { z } from "zod";
 
 import { BeyondClient } from "../firestore/client.ts";
 import type { Fetcher } from "../firestore/client.ts";
 import { BrowserSetupError, removeBrowserProfile, withBrowserProfile } from "./browser.ts";
+import { connectBrowser, launchBrowser, systemBrowserPath } from "./launcher.ts";
 import { browserExpression, ORIGIN, SessionSchema, saveSession, sessionPath } from "./session.ts";
 import type { Session } from "./session.ts";
 
@@ -39,21 +39,6 @@ export interface LoginRuntime {
   fetcher?: Fetcher;
 }
 
-const launchBrowser = async (
-  profile: string,
-  options: { headless: boolean; timeout: number }
-): Promise<Browser> => {
-  const executablePath = process.env.BEBU_BROWSER;
-
-  return await puppeteer.launch({
-    ...options,
-    ...(executablePath ? { executablePath } : { channel: "chrome" }),
-    defaultViewport: null,
-    handleSIGINT: false,
-    userDataDir: profile,
-  });
-};
-
 interface LoginBrowser {
   browser: Browser;
   owned: boolean;
@@ -67,14 +52,20 @@ const withLoginBrowser = async <T>(
 ): Promise<T> => {
   options.signal?.throwIfAborted();
 
-  if (!(options.fresh || options.headless || runtime.launch)) {
+  const useProfile = options.fresh || options.headless || runtime.launch;
+  const systemBrowser = useProfile || runtime.connect ? undefined : await systemBrowserPath();
+
+  const connect =
+    runtime.connect ?? (systemBrowser ? () => connectBrowser(systemBrowser) : undefined);
+
+  if (!useProfile && connect) {
     options.progress?.(
-      "bebu connects to Chrome. If Chrome asks for permission, select Allow. bebu reuses your login."
+      "Connecting to Chrome.\nIf Chrome asks for permission, select Allow. Your existing login will be reused."
     );
     let browser: Browser;
 
     try {
-      browser = await (runtime.connect ?? puppeteer.connect)({
+      browser = await connect({
         channel: "chrome",
         defaultViewport: null,
         protocolTimeout: 30_000,
@@ -88,7 +79,7 @@ const withLoginBrowser = async <T>(
 
     try {
       options.progress?.(
-        "bebu opens Beyond Budget with your Chrome data. If the app requires sign-in, sign in. Open your budget."
+        "Opening Beyond Budget with your Chrome data.\nSign in if asked, then open your budget."
       );
 
       return await operation({ browser, owned: false, source: { kind: "browser-cdp" } });
@@ -100,14 +91,18 @@ const withLoginBrowser = async <T>(
   return await withBrowserProfile(async (profile) => {
     options.progress?.(
       options.headless
-        ? "bebu reconnects to Beyond Budget..."
-        : "bebu opens Beyond Budget in its saved profile. If the app requires sign-in, sign in. Open your budget."
+        ? "Reconnecting to Beyond Budget..."
+        : "Opening Beyond Budget in bebu's saved profile.\nSign in if asked, then open your budget."
     );
 
-    const browser = await (runtime.launch ?? launchBrowser)(profile, {
+    const launchOptions = {
       headless: options.headless ?? false,
       timeout: 30_000,
-    });
+    };
+
+    const browser = runtime.launch
+      ? await runtime.launch(profile, launchOptions)
+      : await launchBrowser(profile, launchOptions, options.progress);
 
     try {
       return await operation({ browser, owned: true, source: { kind: "browser-profile" } });
@@ -310,7 +305,7 @@ export const login = async (
 
     // Browser errors can contain private page data. Return only messages that bebu controls.
     throw new AuthError(
-      "Browser sign-in failed. Make sure that Chrome is installed. Stop any other bebu login. Then run bebu auth login"
+      "Browser sign-in failed. Stop any other bebu login. Then run bebu auth login. To use the separate saved profile, run bebu auth login --fresh"
     );
   } finally {
     if (!options.signal) {

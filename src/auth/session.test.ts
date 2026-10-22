@@ -14,6 +14,8 @@ const expiresAt = Date.now() + 3_600_000;
 const authRow = {
   fbase_key: "firebase:authUser:fixture:[DEFAULT]",
   value: {
+    displayName: "Test User",
+    email: "test@example.com",
     stsTokenManager: {
       accessToken: "dummy-browser-token",
       expirationTime: expiresAt,
@@ -73,6 +75,8 @@ test("Playwright IndexedDB state supplies auth, App Check, budget selection, and
   expect(session).toMatchObject({
     appCheckToken: "dummy-app-check",
     budgetIds: ["budgetOne"],
+    displayName: "Test User",
+    email: "test@example.com",
     expiresAt,
     idToken: "dummy-browser-token",
     selectedBudgetId: "budgetOne",
@@ -148,6 +152,8 @@ test("the serialized browser handoff runs without module closures and decrypts o
     expect(await importSealed(path)).toMatchObject({ budgets: 1, imported: true });
     expect(await loadSession()).toMatchObject({
       appCheckToken: "dummy-app-check",
+      displayName: "Test User",
+      email: "test@example.com",
       idToken: "dummy-browser-token",
       selectedBudgetId: "budgetOne",
     });

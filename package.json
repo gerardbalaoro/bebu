@@ -30,10 +30,12 @@
     "start": "node bin.mjs"
   },
   "dependencies": {
+    "@clack/prompts": "1.8.1",
     "@crustjs/core": "0.5.6",
     "@crustjs/extensions": "0.5.6",
     "@crustjs/skills": "0.5.6",
     "@oxc-node/core": "0.0.34",
+    "@puppeteer/browsers": "3.2.5",
     "env-paths": "4.0.0",
     "puppeteer-core": "25.15.0",
     "skills": "1.7.4",

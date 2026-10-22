@@ -17,6 +17,7 @@ export const SessionSchema = z.object({
   appCheckExpiresAt: z.number().optional(),
   appCheckToken: z.string().optional(),
   budgetIds: z.array(z.string()),
+  displayName: z.string().optional(),
   email: z.string().optional(),
   expiresAt: z.number().finite(),
   idToken: z.string().min(1),
@@ -173,10 +174,13 @@ const sessionFromSnapshot = (snapshot: BrowserSnapshot) => {
     }
   }
 
+  const displayName = get(auth, "displayName");
+
   return {
     appCheckExpiresAt: get(check, "expireTimeMillis"),
     appCheckToken: get(check, "token"),
     budgetIds: [...budgetIds],
+    displayName: typeof displayName === "string" ? displayName : undefined,
     email: get(auth, "email"),
     expiresAt: Number(get(auth, "stsTokenManager", "expirationTime")),
     idToken: get(auth, "stsTokenManager", "accessToken"),

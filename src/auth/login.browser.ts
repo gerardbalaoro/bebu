@@ -1,6 +1,5 @@
-/* oxlint-disable no-await-in-loop -- Port polling and browser teardown require ordered awaits. */
+/* oxlint-disable no-await-in-loop -- Browser teardown requires ordered awaits. */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
@@ -12,6 +11,7 @@ import type { Browser, BrowserContext } from "playwright-core";
 import * as puppeteer from "puppeteer-core";
 import type { ConnectOptions } from "puppeteer-core";
 
+import { launchBrowser } from "./launcher.ts";
 import { authStatus, login, logout } from "./login.ts";
 import type { LoginRuntime } from "./login.ts";
 import { loadSession } from "./session.ts";
@@ -63,24 +63,21 @@ const runtime = (html: string, contexts: BrowserContext[]): LoginRuntime => ({
     );
   },
   launch: async (profile, options) => {
-    const context = await chromium.launchPersistentContext(profile, {
+    const browser = await launchBrowser(profile, {
       ...options,
-      args: ["--remote-debugging-port=0"],
-      executablePath: await puppeteer.executablePath("chrome"),
       headless: true,
     });
+
+    const connection = await chromium.connectOverCDP(browser.wsEndpoint(), { noDefaults: true });
+    const [context] = connection.contexts();
+    assert.ok(context);
 
     contexts.push(context);
     await context.route("**/*", async (route) => {
       await route.fulfill({ body: html, contentType: "text/html" });
     });
-    const readFileResult = await readFile(nodePath.join(profile, "DevToolsActivePort"), "utf-8");
-    const [port] = readFileResult.split("\n");
 
-    return await puppeteer.connect({
-      browserURL: `http://127.0.0.1:${port}`,
-      defaultViewport: null,
-    });
+    return browser;
   },
 });
 
@@ -92,45 +89,12 @@ authTest(
     const previous = process.env.BEBU_SESSION_FILE;
     process.env.BEBU_SESSION_FILE = nodePath.join(directory, "bebu", "session.json");
 
-    const chrome = spawn(
-      await puppeteer.executablePath("chrome"),
-      [
-        "--headless=new",
-        "--remote-debugging-port=0",
-        `--user-data-dir=${userDataDir}`,
-        "--no-first-run",
-        "--no-default-browser-check",
-        "about:blank",
-      ],
-      { stdio: "ignore", windowsHide: true }
-    );
+    const chrome = await launchBrowser(userDataDir, { headless: true, timeout: 10_000 });
 
     let browser: Browser | undefined;
 
     try {
-      let endpoint: string | undefined;
-
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        try {
-          const readFileResult1 = await readFile(
-            nodePath.join(userDataDir, "DevToolsActivePort"),
-            "utf-8"
-          );
-
-          const [port, path] = readFileResult1.trim().split("\n");
-          endpoint = `ws://127.0.0.1:${port}${path}`;
-        } catch {
-          /* Wait for the fixture browser to open its port. */
-        }
-
-        if (endpoint) {
-          break;
-        }
-
-        await delay(100);
-      }
-
-      assert.ok(endpoint, "Chrome did not open its fixture debugging endpoint");
+      const endpoint = chrome.wsEndpoint();
       browser = await chromium.connectOverCDP(endpoint, { noDefaults: true });
       const [context] = browser.contexts();
       assert.ok(context);
@@ -208,7 +172,7 @@ authTest(
         await browser.close();
       }
 
-      chrome.kill();
+      await chrome.close();
 
       if (previous === undefined) {
         delete process.env.BEBU_SESSION_FILE;

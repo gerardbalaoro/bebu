@@ -1,6 +1,7 @@
 import { defineCommand } from "@crustjs/core";
 
 import { compactFlag, payload, print } from "../cli/io.ts";
+import { loginWithPrompts, signedInMessage } from "./login-prompt.ts";
 import { authStatus, login, logout } from "./login.ts";
 import {
   importSealed,
@@ -50,16 +51,23 @@ export const authCommand = defineCommand(
                 }
               )
               .action(async ({ flags, signal, stdout, stderr }) => {
-                const session = await login({
+                const options = {
                   fresh: flags.fresh,
                   headless: flags.headless,
-                  progress: stderr,
                   signal,
                   timeoutSeconds: flags.timeout,
-                });
+                };
+
+                if (process.stdout.isTTY && process.stderr.isTTY) {
+                  await loginWithPrompts(options);
+
+                  return;
+                }
+
+                const session = await login({ ...options, progress: stderr });
 
                 stdout(
-                  `Connected to Beyond Budget.${session.selectedBudgetName ? `\nSelected budget: ${session.selectedBudgetName}` : ""}\n\nRead your accounts:\n  bebu accounts list`
+                  `${signedInMessage(session)}${session.selectedBudgetName ? `\nSelected budget: ${session.selectedBudgetName}` : ""}\n\nRead your accounts:\n  bebu accounts list`
                 );
               })
         )
