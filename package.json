@@ -1,0 +1,60 @@
+{
+  "name": "bebu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A command-line tool for Beyond Budget accounts and transactions.",
+  "bin": {
+    "bebu": "bin.mjs"
+  },
+  "files": [
+    "bin.mjs",
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/**/*.browser.ts",
+    "tsconfig.json",
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "skills/",
+    "docs/",
+    "README.md"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "node bin.mjs",
+    "skills": "node bin.mjs skills generate && oxfmt --config oxfmt.config.ts --write skills",
+    "fmt": "oxfmt --config oxfmt.config.ts --write .",
+    "fmt:check": "oxfmt --config oxfmt.config.ts --check .",
+    "lint": "oxlint --config oxlint.config.ts .",
+    "check": "tsc --noEmit",
+    "test": "bun test",
+    "start": "node bin.mjs"
+  },
+  "dependencies": {
+    "@crustjs/core": "0.5.6",
+    "@crustjs/extensions": "0.5.6",
+    "@crustjs/skills": "0.5.6",
+    "@oxc-node/core": "0.0.34",
+    "env-paths": "4.0.0",
+    "puppeteer-core": "25.15.0",
+    "skills": "1.7.4",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@crustjs/testing": "0.1.6",
+    "@types/bun": "1.4.3",
+    "fake-indexeddb": "6.2.6",
+    "lefthook": "2.2.2",
+    "oxfmt": "0.74.0",
+    "oxlint": "1.89.0",
+    "playwright-core": "1.64.1",
+    "typescript": "7.0.2",
+    "ultracite": "8.0.1"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "bun@1.4.3",
+  "trustedDependencies": [
+    "lefthook"
+  ]
+}

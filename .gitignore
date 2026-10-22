@@ -1,0 +1,15 @@
+.bebu/
+.crust/
+.agents/skills/
+*.har
+*storage-state*.json
+*session*.json
+.research/
+node_modules/
+handoff*.js
+encrypted-handoff*.json
+*.handoff-key
+.env
+.env.*
+*.tgz
+/skills-lock.json
