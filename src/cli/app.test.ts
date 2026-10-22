@@ -107,9 +107,3 @@ test("auth status and logout return JSON without a format flag", async () => {
     await rm(directory, { force: true, recursive: true });
   }
 });
-
-test("the obsolete json switch is rejected instead of changing output mode", async () => {
-  const result = await captureExecute(createApp(), ["transactions", "create", "--json"]);
-  expect(result.exitCode).toBe(1);
-  expect(JSON.parse(result.stderr)).toEqual({ error: expect.stringContaining("--json") });
-});

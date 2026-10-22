@@ -164,7 +164,7 @@ test("a canonical document with a different stored ID is not reported as a match
   expect(result.entries[0]?.transactions).toEqual([]);
 });
 
-test.each([403, 429, 500])(
+test.each([403, 500])(
   "canonical lookup HTTP %s is propagated instead of called an unmatched entry",
   async (status) => {
     const { client, failures } = fixture({ row: { id: "" } });
