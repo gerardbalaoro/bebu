@@ -5,9 +5,9 @@ stored upcoming transaction previews and stored period balances. Its category co
 expand recurring transactions. Recreating future occurrences from canonical transactions is a
 separate, unresolved contract.
 
-The smallest safe extension is a preview for budgets with an empty upcoming map and zero upcoming
-balances. The calculation belongs in CLI code. This investigation changed no production code or
-existing tests and performed no financial writes.
+The CLI implements a restricted preview for budgets with an empty upcoming map and zero upcoming
+balances. It also requires an untrimmed transaction stash. The calculation belongs in CLI code. The
+investigation itself performed no financial writes.
 
 ## Evidence Identity And Scope
 
@@ -292,18 +292,18 @@ The experiment did not run original map/string implementations, timestamp conver
 coroutines, allocation saves, or Firebase. Membership, date construction, ordering stability, and
 phase overlap remain static findings. No full smart-allocation runtime fixture exists.
 
-## Smallest Safe CLI Extension And Remaining Evidence
+## CLI Support And Remaining Evidence
 
-The next change is a pure smart-preview planner, connected to the existing allocation model and
-settings. It can reuse supported target arithmetic after separating that arithmetic from target-only
-eligibility. It must retain `executionSupported: false`.
+`allocations preview --strategy smart` uses the existing allocation model and settings. Its
+[planner](../../src/budget/smart-allocation.ts) applies smart eligibility separately from
+target-only eligibility. It reports `executionSupported: false`.
 
 A conservative first scope has these CLI restrictions:
 
 - Existing flat, ordinary, unlinked, nonarchived, zero-based categories with unambiguous stored
   order.
 - The existing current/latest-period identity checks and safe-integer policy.
-- Supported monthly spending or ongoing savings targets, or no target.
+- Positive monthly spending or ongoing savings targets, or no target.
 - No selected-month snoozes or `FUND_OVERRUNS` until their smart-specific paths are implemented.
 - Ignore-pool disabled.
 - A successfully read `TRANSACTIONS` stash with an empty upcoming map and `trimmed=false`.
@@ -312,8 +312,8 @@ A conservative first scope has these CLI restrictions:
 The empty map removes all due-date priority inputs and upcoming requests. The balance guard rejects
 inconsistent-looking inputs. This guard is a deliberate CLI restriction, not a native requirement.
 Missing stash documents, omitted read results, or a trimmed snapshot cannot serve as proof of
-emptiness. The first planner still needs overspending-first ordering and the successful-category
-exclusion rule. It cannot call target-only preview after altering balances.
+emptiness. The planner applies overspending-first ordering and excludes positively funded categories
+from the target phase. It retains original target requests throughout the calculation.
 
 The static client calculation for nonempty upcoming maps is now bounded. It requires complete map
 membership, each matching `targetToId` and `dueAt`, selected-period `U` and balance operands, and a

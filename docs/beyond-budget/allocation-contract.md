@@ -66,6 +66,11 @@ this formula.
 Monthly spending uses the same formula. It also subtracts positive carryover when both carryover
 strategies are ALL and `useAllocatedAmountOnly` is not true.
 
+SAVINGS supports fixed, dynamic, and no-deadline demand through
+[savings-target.ts](../../src/budget/savings-target.ts). The preview requires a stored creation
+timestamp and an explicit calculation timezone. [Savings Target Schedules](target-schedules.md)
+defines the formulas and restrictions.
+
 Eligibility excludes income categories, SKIP computation, FUND_OVERRUNS accumulation,
 selected-period snoozes, absent targets, and nonpositive target amounts. Other target formulas
 remain unsupported.
@@ -99,6 +104,10 @@ Smart priority uses negative availability, earliest matching due date, upcoming 
 weekday, then target day. Due dates use the runtime system timezone without a selected-month filter.
 [Smart Allocation](smart-allocation.md) records eligibility, ordering directions, and preview
 limits.
+
+The CLI implements the restricted empty-upcoming smart subset. Its phase results keep the original
+target requests separate from overspending requests. They do not represent recalculated target
+progress.
 
 ## Save Boundary
 

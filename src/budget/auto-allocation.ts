@@ -11,6 +11,7 @@ import {
 } from "./allocation-model.ts";
 import { distributeAllocation } from "./allocation-planner.ts";
 import { allocationSettings } from "./allocation-settings.ts";
+import { planSmartAllocation } from "./smart-allocation.ts";
 import { calculateTargetDemand } from "./target-demand.ts";
 import { ObjectIdSchema } from "./transaction-model.ts";
 
@@ -26,13 +27,7 @@ const currentMonth = (now: Date, timezone: string) => {
   return `${values.year}-${values.month}`;
 };
 
-// This preview has no save path. Static calculations do not establish carryover propagation,
-// native retry identity, or a concurrency-safe commit for all source snapshots.
-export const previewTargetAllocation = async (
-  client: BeyondClient,
-  yearMonth: string,
-  now = new Date()
-) => {
+const readAllocationContext = async (client: BeyondClient, yearMonth: string, now: Date) => {
   if (!/^\d{4}-(?:0[1-9]|1[0-2])$/u.test(yearMonth)) {
     throw new Error("Use a month in YYYY-MM format");
   }
@@ -45,14 +40,14 @@ export const previewTargetAllocation = async (
     (budget.data.currentChallenge !== undefined && budget.data.currentChallenge !== null)
   ) {
     throw new Error(
-      "Target allocation preview requires a zero-based budget with matching identity and no active challenge"
+      "Allocation preview requires a zero-based budget with matching identity and no active challenge"
     );
   }
 
   const periodId = ObjectIdSchema.parse(budget.data.availablePeriods[yearMonth]?.id);
 
   if (Object.keys(budget.data.availablePeriods).some((month) => month > yearMonth)) {
-    throw new Error("Target allocation preview requires the latest saved month");
+    throw new Error("Allocation preview requires the latest saved month");
   }
 
   const [index, period, user] = await Promise.all([
@@ -64,9 +59,7 @@ export const previewTargetAllocation = async (
   const config = z.object({ timezone: z.string().min(1) }).parse(user.data.config);
 
   if (yearMonth !== currentMonth(now, config.timezone)) {
-    throw new Error(
-      "Target allocation preview requires the current month in the saved user timezone"
-    );
+    throw new Error("Allocation preview requires the current month in the saved user timezone");
   }
 
   if (period.data.id !== periodId || period.data.yearMonth !== yearMonth) {
@@ -76,15 +69,33 @@ export const previewTargetAllocation = async (
   const settings = allocationSettings(user.data);
 
   if (settings.ignoreAvailable) {
-    throw new Error("Target allocation preview does not support ignoring available funds");
+    throw new Error("Allocation preview does not support ignoring available funds");
   }
 
   const model = allocationModel(index.data, period.data);
+
+  return { budget, index, model, period, periodId, settings, user };
+};
+
+// This preview has no save path. Static calculations do not establish carryover propagation,
+// native retry identity, or a concurrency-safe commit for all source snapshots.
+export const previewTargetAllocation = async (
+  client: BeyondClient,
+  yearMonth: string,
+  now = new Date(),
+  options: { calculationTimezone?: string } = {}
+) => {
+  const { budget, index, period, user, settings, model, periodId } = await readAllocationContext(
+    client,
+    yearMonth,
+    now
+  );
 
   const candidates = model.categories
     .map(({ category, balance }) => {
       const demand = calculateTargetDemand({
         balance,
+        calculationTimezone: options.calculationTimezone,
         category: targetInputCategory(category),
         directChildren: [],
         yearMonth,
@@ -115,6 +126,7 @@ export const previewTargetAllocation = async (
     ...allocation,
     availableAmount: model.pool.availableAmount,
     budgetId: client.budgetId,
+    calculationTimezone: options.calculationTimezone ?? null,
     categories: allocation.categories.map((category) => {
       const demand = demands.get(category.categoryId);
 
@@ -145,6 +157,55 @@ export const previewTargetAllocation = async (
       updateTime: document.updateTime,
     })),
     strategy: "targets",
+    yearMonth,
+  };
+};
+
+export const previewSmartAllocation = async (
+  client: BeyondClient,
+  yearMonth: string,
+  now = new Date()
+) => {
+  const { budget, index, period, user, settings, model, periodId } = await readAllocationContext(
+    client,
+    yearMonth,
+    now
+  );
+
+  const transactions = await client.stash(
+    "TRANSACTIONS",
+    z.object({
+      data: z.object({
+        trimmed: z.boolean().default(false),
+        upcomingTransactions: z.record(z.string(), z.unknown()).default({}),
+      }),
+    })
+  );
+
+  if (
+    transactions.data.data.trimmed ||
+    Object.keys(transactions.data.data.upcomingTransactions).length > 0 ||
+    Object.values(period.data.balances).some((balance) => balance.upcomingAmount !== 0)
+  ) {
+    throw new Error(
+      "Smart preview requires an untrimmed, empty upcoming transaction map and zero upcoming balances"
+    );
+  }
+
+  return {
+    ...planSmartAllocation(model, yearMonth, settings.allowPartial),
+    budgetId: client.budgetId,
+    executionSupported: false,
+    periodId,
+    pool: model.pool,
+    settings,
+    settingsSource: { document: user.name, omittedFields: "native-defaults", path: "config" },
+    sources: [budget, index, period, user, transactions].map((document) => ({
+      document: document.name,
+      updateTime: document.updateTime,
+    })),
+    strategy: "smart",
+    upcomingBasis: "empty-map-and-zero-balances",
     yearMonth,
   };
 };

@@ -19,7 +19,7 @@ import { AccountPatchSchema, AccountService } from "../budget/accounts.ts";
 import { allocationAverages } from "../budget/allocation-averages.ts";
 import { allocationHistory } from "../budget/allocation-history.ts";
 import { allocationReport } from "../budget/allocation-report.ts";
-import { previewTargetAllocation } from "../budget/auto-allocation.ts";
+import { previewSmartAllocation, previewTargetAllocation } from "../budget/auto-allocation.ts";
 import { budgetDiagnostics } from "../budget/diagnostics.ts";
 import { categoryFunding } from "../budget/funding.ts";
 import { LabelsSchema } from "../budget/labels.ts";
@@ -390,36 +390,67 @@ const budgetCommand = defineCommand(
 
 const allocationsCommand = defineCommand(
   "allocations",
-  { description: "Preview target allocation and inspect category allocation history" },
+  { description: "Preview allocation and inspect category allocation history" },
   (command) =>
     command
       .add(
         defineCommand(
           "preview",
           {
-            description: "Calculate target funding without changing the budget",
+            description: "Calculate target or restricted smart funding without changing the budget",
             sections: [
               {
-                body: "The CLI calculates ongoing-savings and monthly-spending targets from saved data. It applies snoozing, category order, and the authenticated user's partial-funding setting. It requires a flat zero-based budget, the current/latest saved month, and an explicit saved timezone. Hierarchies, archived or special categories, linked accounts, ambiguous order, other target formulas, and ignoring available funds are rejected. Upcoming amounts do not prevent a target preview. The result shows source document versions, pool operands, category allocations before and after, and shortfalls. Reads are not one atomic snapshot. executionSupported is false: this command cannot save the plan. Do not convert its output into manual document writes.",
+                body: "Use --strategy targets (default) for ongoing savings, monthly spending, and SAVINGS targets. SAVINGS requires a stored creation timestamp and --calculation-timezone set to the native app device timezone. Fixed, dynamic, and no-deadline demands are supported; repeating targets and deadlines before creation are rejected. No target forecast or progress percentage is calculated.\n\nUse --strategy smart to cover overspending before supported targets. Smart requires an untrimmed, empty upcoming transaction map and zero upcoming balances. It supports positive monthly spending and ongoing savings targets, or overspending without a target. Nonpositive target amounts are rejected. Snoozed targets, FUND_OVERRUNS, and SAVINGS are rejected in smart mode. Any positive funding suppresses later phases, including partial funding.\n\nBoth strategies require a flat zero-based budget, the current/latest saved month, and an explicit saved user timezone for the current-month check. Hierarchies, archived or special categories, linked accounts, ambiguous order, and ignoring available funds are rejected. Results include source versions, pool operands, and proposed amounts. Reads are not one atomic snapshot. executionSupported is false: this command cannot save the plan. Do not convert its output into manual document writes.",
                 title: "Supported preview",
               },
             ],
           },
           (leaf) =>
             leaf
-              .flags(...readFlags, {
-                description: "Select the current/latest saved YYYY-MM budget month",
-                name: "month",
-                required: true,
-                type: "string",
-              })
-              .action(async ({ flags, stdout }) =>
-                print(
-                  stdout,
-                  await previewTargetAllocation(await clientFor(flags.budget), flags.month),
-                  flags.compact
-                )
+              .flags(
+                ...readFlags,
+                {
+                  description: "Select the current/latest saved YYYY-MM budget month",
+                  name: "month",
+                  required: true,
+                  type: "string",
+                },
+                {
+                  default: "targets",
+                  description: "Choose targets or smart",
+                  name: "strategy",
+                  type: "string",
+                },
+                {
+                  description:
+                    "Native app device timezone for SAVINGS dates, for example Asia/Manila",
+                  name: "calculation-timezone",
+                  type: "string",
+                }
               )
+              .action(async ({ flags, stdout }) => {
+                const strategy = z.enum(["targets", "smart"]).parse(flags.strategy);
+                const calculationTimezone = flags["calculation-timezone"];
+
+                if (strategy === "smart" && calculationTimezone !== undefined) {
+                  throw new Error("--calculation-timezone applies to target previews only");
+                }
+
+                if (calculationTimezone !== undefined) {
+                  new Intl.DateTimeFormat("en-US", { timeZone: calculationTimezone }).format();
+                }
+
+                const client = await clientFor(flags.budget);
+
+                const result =
+                  strategy === "smart"
+                    ? await previewSmartAllocation(client, flags.month)
+                    : await previewTargetAllocation(client, flags.month, new Date(), {
+                        calculationTimezone,
+                      });
+
+                print(stdout, result, flags.compact);
+              })
         )
       )
       .add(

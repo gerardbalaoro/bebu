@@ -51,6 +51,8 @@ Unknown values and absent settings have no inferred meaning or default.
 ## Allocation requests
 
 For a target funding preview, use allocations preview with an explicit month.
+For SAVINGS targets, supply --calculation-timezone with the native app device timezone. Ask for this timezone if it is unknown.
+For overspending followed by targets, use allocations preview --strategy smart. Read its restrictions before use.
 The CLI calculates eligibility, priority, requested amounts, partial funding, and shortfalls from saved data.
 It supports a limited set of ordinary zero-based budgets and target types. An unsupported input stops the preview.
 Do not calculate missing amounts or reproduce a rejected workflow with a chain of commands.

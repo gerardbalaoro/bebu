@@ -21,9 +21,13 @@ const carryover = z.enum(["ALL", "NONE"]);
 const targetSchema = z.object({
   amount: allocationMoney.default(0),
   carryOverStrategy: carryover.default("ALL"),
+  createdAt: z.string().optional(),
   dayOfMonth: allocationMoney.min(1).max(31).nullable().default(null),
   dayOfWeek: weekday.nullable().default(null),
+  dynamicSavingsTarget: z.boolean().default(false),
+  endAt: z.string().nullable().default(null),
   period: z.string().nullable().default(null),
+  repeatIntervalMonths: allocationMoney.nullable().default(null),
   snoozeSchedule: z.record(z.string(), z.boolean()).default({}),
   type: z.string().default("SPENDING"),
   useAllocatedAmountOnly: z.boolean().nullable().default(null),

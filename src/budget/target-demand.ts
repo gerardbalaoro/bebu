@@ -1,20 +1,32 @@
 import { z } from "zod";
 
+import { savingsTargetDemand } from "./savings-target.ts";
+
 const amountSchema = z.number().int().safe();
 
 const targetSchema = z.object({
   amount: amountSchema,
   carryOverStrategy: z.string(),
+  createdAt: z.string().optional(),
   dayOfMonth: amountSchema.nullable(),
   dayOfWeekOrdinal: amountSchema.min(0).max(6).nullable(),
+  dynamicSavingsTarget: z.boolean().optional(),
+  endAt: z.string().nullable().optional(),
   period: z.string().nullable(),
+  repeatIntervalMonths: amountSchema.nullable().optional(),
   snoozeSchedule: z.record(z.string(), z.boolean()),
   type: z.string(),
   useAllocatedAmountOnly: z.boolean().nullable(),
 });
 
 const inputSchema = z.object({
-  balance: z.object({ allocatedAmount: amountSchema, carriedOverAmount: amountSchema }),
+  balance: z.object({
+    allocatedAmount: amountSchema,
+    carriedOverAmount: amountSchema,
+    otherAmount: amountSchema.optional(),
+    spentAmount: amountSchema.optional(),
+  }),
+  calculationTimezone: z.string().optional(),
   category: z.object({
     accumulationStrategy: z.string(),
     aggregateAllocationForTarget: z.boolean(),
@@ -113,6 +125,10 @@ const ineligibleReason = ({ category, yearMonth }: TargetDemandInput) => {
 };
 
 const unsupportedTargetReason = (target: z.infer<typeof targetSchema>) => {
+  if (target.type === "SAVINGS") {
+    return target.createdAt === undefined ? "savings-creation-timestamp-required" : null;
+  }
+
   if (target.type !== "ON_GOING_SAVINGS" && target.type !== "SPENDING") {
     return "unsupported-target-type";
   }
@@ -170,8 +186,8 @@ export const calculateTargetDemand = (input: TargetDemandInput): TargetDemandRes
   const { target } = category;
 
   const order = {
-    dayOfMonth: target?.dayOfMonth ?? null,
-    dayOfWeekOrdinal: target?.dayOfWeekOrdinal ?? null,
+    dayOfMonth: target?.type === "SAVINGS" ? null : (target?.dayOfMonth ?? null),
+    dayOfWeekOrdinal: target?.type === "SAVINGS" ? null : (target?.dayOfWeekOrdinal ?? null),
   };
 
   const categoryReason = unsupportedCategoryReason(category);
@@ -214,7 +230,8 @@ export const calculateTargetDemand = (input: TargetDemandInput): TargetDemandRes
     ...order,
     eligible: true,
     reason: null,
-    requestedAmount: requestedAmount(value, target),
+    requestedAmount:
+      target.type === "SAVINGS" ? savingsTargetDemand(value) : requestedAmount(value, target),
     status: "eligible",
   };
 };

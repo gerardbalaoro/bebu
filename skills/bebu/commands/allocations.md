@@ -1,6 +1,6 @@
 # `bebu allocations`
 
-Preview target allocation and inspect category allocation history
+Preview allocation and inspect category allocation history
 
 ## Subcommands
 
@@ -8,7 +8,8 @@ Preview target allocation and inspect category allocation history
   months
 - [`history`](allocations/history.md) - Read native allocation history, optionally with matching
   transactions
-- [`preview`](allocations/preview.md) - Calculate target funding without changing the budget
+- [`preview`](allocations/preview.md) - Calculate target or restricted smart funding without
+  changing the budget
 - [`report`](allocations/report.md) - Summarize monthly allocations by category and nature
 
 ---

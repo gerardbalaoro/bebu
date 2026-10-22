@@ -57,8 +57,7 @@ marker existence only. Marker expiry and validation before the commit also limit
 ## Subcommands
 
 - [`accounts`](accounts.md) - Read accounts and change their configuration
-- [`allocations`](allocations.md) - Preview target allocation and inspect category allocation
-  history
+- [`allocations`](allocations.md) - Preview allocation and inspect category allocation history
 - [`auth`](auth.md) - Sign in through your browser and manage the saved connection
 - [`budget`](budget.md) - Read budget diagnostics
 - [`categories`](categories.md) - Read expense and payment categories

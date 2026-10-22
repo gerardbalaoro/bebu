@@ -14,7 +14,7 @@ amounts.
 | Allocated amounts by category and nature                 | `allocations report`   |
 | Positive allocation and spending averages                | `allocations averages` |
 | Raw target settings                                      | `targets list`         |
-| Calculated target funding without a save                 | `allocations preview`  |
+| Target or restricted smart funding preview               | `allocations preview`  |
 
 Use the [generated command reference](../../skills/bebu/SKILL.md) for arguments and restrictions.
 The preview supports a limited set of flat zero-based budgets and targets. It reports
@@ -62,7 +62,9 @@ paths, persistence rules, and source-specific history meanings.
 demonstrates a calculation compared against extracted WASM instructions.
 
 [Savings Target Schedules](target-schedules.md) records the recovered deadline formulas and date
-rules. SAVINGS previews still need implementation and an explicit timezone policy.
+rules. SAVINGS previews require explicit stored creation timestamps and `--calculation-timezone`.
+That timezone must match the native app device timezone. Fixed, dynamic, and no-deadline demands are
+supported. Repeating targets and target forecasts remain unsupported.
 
 [Allocation Persistence](allocation-persistence.md) records save completion, undo, and retry rules.
 The direct writer returns before server confirmation. Undo subtracts the recorded change from the
@@ -73,8 +75,8 @@ their separate history writes. The CLI follows the recovered independent-income 
 and retains its guards against linked-allocation writes.
 
 [Smart Allocation](smart-allocation.md) records upcoming membership, category priority, and phase
-overlap. A restricted preview can cover overspending and supported targets when upcoming entries and
-balances are empty. Smart planning still needs implementation.
+overlap. `allocations preview --strategy smart` covers overspending and supported targets when the
+upcoming map is empty, its stash is untrimmed, and upcoming balances are zero.
 
 [Allocation Rules](allocation-contract.md) contains the recovered formulas, defaults, ordering, and
 save boundaries. Those findings come from static analysis and read-only app observations in
@@ -86,8 +88,9 @@ Remaining work includes:
 - Allocation saves, later-period carryover, undo, and request identity.
 - Linked-account allocation and its reversal effects.
 - Parent and surplus coverage, including their precedence.
-- Smart planning, upcoming-stash completeness, and upstream recurring-transaction effects.
-- Savings/deadline targets, historical replacement, and equal stored-order ties.
+- Smart planning with upcoming bills, stash completeness, and upstream recurring-transaction
+  effects.
+- Other target schedules, repeat lifecycle, historical replacement, and equal stored-order ties.
 
 Reallocation is a separate transaction flow, not two manual allocations. History deletion does not
 undo an allocation. A surplus forecast does not prove that money was allocated.

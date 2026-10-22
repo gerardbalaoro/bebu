@@ -254,43 +254,43 @@ categories have ordinary SAVINGS balances.
 WEEKLY, BI_MONTHLY, EVERY_TWO_MONTHS, and ANNUALLY select other 49244 branches. Their full contracts
 were not investigated here. Do not apply SAVINGS day/week rules to those schedules.
 
-## Proposed CLI Boundary
+## CLI Boundary
 
-This table separates recovered rules from proposed implementation limits. The current CLI still
-rejects SAVINGS. Every new calculation must belong in CLI code, not generated agent instructions.
+This table separates recovered rules from implementation limits. The CLI supports SAVINGS demand
+with an explicit calculation timezone. All calculations belong in CLI code, not generated agent
+instructions.
 
-| Input Condition                                            | Recovered Rule                    | Proposed CLI Handling                                   |
-| ---------------------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
-| Positive SAVINGS amount, explicit creation/deadline, fixed | Fixed formula                     | First preview extension                                 |
-| Same inputs, dynamic=true                                  | Dynamic formula                   | Same extension, separate branch                         |
-| `dynamicSavingsTarget` omitted                             | false                             | Decode this stable default                              |
-| `createdAt` omitted                                        | Decode-time current Timestamp     | Reject for deterministic preview                        |
-| Deadline before creation                                   | Arithmetic still runs             | Reject as an explicit CLI restriction                   |
-| Null deadline                                              | Full shortfall                    | Later demand-only extension; omit unsupported forecasts |
-| Category carryover ALL                                     | Include signed carryover          | Support with explicit complete balance/defaults         |
-| Category carryover NONE                                    | Ignore carryover                  | Support                                                 |
-| Target carryover / allocated-only                          | Ignored by SAVINGS                | Keep separate from monthly-spending logic               |
-| Month snoozed or other eligibility exclusion               | Ineligible                        | Return the established exclusion                        |
-| Repeat interval present                                    | Unused in this demand path        | Reject until repeat lifecycle is understood             |
-| Parent/child categories                                    | Positive direct-child allocations | Retain the existing hierarchy rejection                 |
-| Unknown runtime timezone                                   | Local dates are uncertain         | Require an explicit compatible timezone                 |
-| Unsafe amount/intermediate                                 | Native wraps signed i64           | Reject under an explicit CLI integer policy             |
+| Input Condition                                            | Recovered Rule                    | CLI Handling                                    |
+| ---------------------------------------------------------- | --------------------------------- | ----------------------------------------------- |
+| Positive SAVINGS amount, explicit creation/deadline, fixed | Fixed formula                     | Supported                                       |
+| Same inputs, dynamic=true                                  | Dynamic formula                   | Supported separately                            |
+| `dynamicSavingsTarget` omitted                             | false                             | Decode this stable default                      |
+| `createdAt` omitted                                        | Decode-time current Timestamp     | Reject for deterministic preview                |
+| Deadline before creation                                   | Arithmetic still runs             | Reject as an explicit CLI restriction           |
+| Null deadline                                              | Full shortfall                    | Supported demand only; forecasts omitted        |
+| Category carryover ALL                                     | Include signed carryover          | Support with explicit complete balance/defaults |
+| Category carryover NONE                                    | Ignore carryover                  | Support                                         |
+| Target carryover / allocated-only                          | Ignored by SAVINGS                | Keep separate from monthly-spending logic       |
+| Month snoozed or other eligibility exclusion               | Ineligible                        | Return the established exclusion                |
+| Repeat interval present                                    | Unused in this demand path        | Reject until repeat lifecycle is understood     |
+| Parent/child categories                                    | Positive direct-child allocations | Retain the existing hierarchy rejection         |
+| Unknown runtime timezone                                   | Local dates are uncertain         | Require an explicit compatible timezone         |
+| Unsafe amount/intermediate                                 | Native wraps signed i64           | Reject under an explicit CLI integer policy     |
 
 The initial CLI used the period document ID for snoozing. A synthetic call returned eligible demand
 100 despite `snoozeSchedule["2026-10"]=true`. The corrected demand input is `yearMonth`, and the
 preview passes the validated selected month. A regression test uses different document and month
 keys to preserve this distinction.
 
-For the subsequent SAVINGS extension, the current schemas need `createdAt`, `endAt`,
-`dynamicSavingsTarget`, and `repeatIntervalMonths`. They currently discard these fields.
-`target-demand.ts` also retains only allocated and carryover amounts from the supplied balance. It
-needs spent and other amounts for `F`, plus an explicit month and timestamp conversion policy.
-SAVINGS order keys must come from its calculated null schedule fields.
+The schemas preserve `createdAt`, `endAt`, `dynamicSavingsTarget`, and `repeatIntervalMonths`.
+`target-demand.ts` passes spent and other amounts to the savings calculation. SAVINGS sort keys are
+null, even when the stored target has weekday or day-of-month values.
 
-The preview currently checks the current month in the saved user timezone. That does not establish
-the system timezone used by native timestamp conversion. Retain the current flat/latest-month
-restrictions while adding an explicit calculation timezone. Preserve the existing ongoing and
-monthly-spending formulas as separate branches.
+The current-month check still uses the saved user timezone. Timestamp conversion uses the explicit
+`--calculation-timezone`, which must match the native app device timezone. The CLI uses Gregorian
+calendar dates through `Intl.DateTimeFormat` and requires years 0001 through 9999. Synthetic tests
+cover month boundaries, leap years, and a zone with daylight saving time. Native conversion fixtures
+remain unavailable. Existing flat/current/latest-month restrictions remain in effect.
 
 ## Offline Experiment And Remaining Evidence
 

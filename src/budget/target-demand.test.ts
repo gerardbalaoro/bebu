@@ -127,7 +127,7 @@ test("no target and nonpositive amounts are ineligible rather than one-unit requ
   ).toMatchObject({ reason: "no-target", requestedAmount: 0 });
 });
 
-test.each(["SAVINGS", "GET_OUT_OF_DEBT", "FUTURE_TYPE"])(
+test.each(["GET_OUT_OF_DEBT", "FUTURE_TYPE"])(
   "unsupported target type %s never becomes a fabricated zero demand",
   (type) => {
     const value = input();

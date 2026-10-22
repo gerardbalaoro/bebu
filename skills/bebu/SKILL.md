@@ -38,11 +38,14 @@ default.
 
 ## Allocation requests
 
-For a target funding preview, use allocations preview with an explicit month. The CLI calculates
-eligibility, priority, requested amounts, partial funding, and shortfalls from saved data. It
-supports a limited set of ordinary zero-based budgets and target types. An unsupported input stops
-the preview. Do not calculate missing amounts or reproduce a rejected workflow with a chain of
-commands. The preview reports executionSupported:false and cannot save allocations.
+For a target funding preview, use allocations preview with an explicit month. For SAVINGS targets,
+supply --calculation-timezone with the native app device timezone. Ask for this timezone if it is
+unknown. For overspending followed by targets, use allocations preview --strategy smart. Read its
+restrictions before use. The CLI calculates eligibility, priority, requested amounts, partial
+funding, and shortfalls from saved data. It supports a limited set of ordinary zero-based budgets
+and target types. An unsupported input stops the preview. Do not calculate missing amounts or
+reproduce a rejected workflow with a chain of commands. The preview reports executionSupported:false
+and cannot save allocations.
 
 For allocation records, use allocations history. For category and nature totals, use allocations
 report. For positive historical averages, use allocations averages with an explicit reference month.
@@ -88,10 +91,10 @@ duplicate detection is not guaranteed.
 | `bebu accounts list`        | runnable | List account IDs and balances in integer minor units                                                   | [commands/accounts/list.md](commands/accounts/list.md)               |
 | `bebu accounts show`        | runnable | Read a complete account record                                                                         | [commands/accounts/show.md](commands/accounts/show.md)               |
 | `bebu accounts update`      | runnable | Change the account configuration. Use schema for the accepted JSON fields                              | [commands/accounts/update.md](commands/accounts/update.md)           |
-| `bebu allocations`          | group    | Preview target allocation and inspect category allocation history                                      | [commands/allocations.md](commands/allocations.md)                   |
+| `bebu allocations`          | group    | Preview allocation and inspect category allocation history                                             | [commands/allocations.md](commands/allocations.md)                   |
 | `bebu allocations averages` | runnable | Read average allocation and spending from prior saved months                                           | [commands/allocations/averages.md](commands/allocations/averages.md) |
 | `bebu allocations history`  | runnable | Read native allocation history, optionally with matching transactions                                  | [commands/allocations/history.md](commands/allocations/history.md)   |
-| `bebu allocations preview`  | runnable | Calculate target funding without changing the budget                                                   | [commands/allocations/preview.md](commands/allocations/preview.md)   |
+| `bebu allocations preview`  | runnable | Calculate target or restricted smart funding without changing the budget                               | [commands/allocations/preview.md](commands/allocations/preview.md)   |
 | `bebu allocations report`   | runnable | Summarize monthly allocations by category and nature                                                   | [commands/allocations/report.md](commands/allocations/report.md)     |
 | `bebu auth`                 | group    | Sign in through your browser and manage the saved connection                                           | [commands/auth.md](commands/auth.md)                                 |
 | `bebu auth login`           | runnable | Connect through your Chrome session. If necessary, wait for sign-in                                    | [commands/auth/login.md](commands/auth/login.md)                     |
