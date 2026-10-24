@@ -20,9 +20,6 @@ npx --yes skills add gerardbalaoro/bebu --skill bebu
 
 Choose your agent in the skills.sh installer. Then start your agent. Ask it to use bebu.
 
-The skill uses npx to run commands. You do not need a global CLI installation.
+## Data
 
-Node.js 24+ is required. An agent is optional. bebu stores its data in the OS data folder for
-`bebu`.
-
-To use another data folder, set `BEBU_HOME`.
+bebu stores its data in the OS data folder. To use another data folder, set `BEBU_HOME`.

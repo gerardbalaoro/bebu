@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Conventions"
+  short_description: "Write commits, branches, and PRs"
+  default_prompt: "Use $git-conventions to write this commit, branch name, or pull request following repo conventions."

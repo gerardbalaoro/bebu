@@ -1,0 +1,4 @@
+interface:
+  display_name: "TypeScript Conventions"
+  short_description: "Write and review domain-oriented TypeScript"
+  default_prompt: "Use $typescript-conventions to write or review this TypeScript code."

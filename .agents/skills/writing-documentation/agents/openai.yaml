@@ -1,0 +1,4 @@
+interface:
+  display_name: "Writing Documentation"
+  short_description: "Keep documentation focused on reader needs"
+  default_prompt: "Use $writing-documentation to write or review documentation for this task."

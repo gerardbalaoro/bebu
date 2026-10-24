@@ -1,6 +1,10 @@
 .bebu/
 .crust/
-.agents/skills/
+.agents/skills/*
+!.agents/skills/git-conventions/
+!.agents/skills/typescript-conventions/
+!.agents/skills/writing-documentation/
+!.agents/skills/writing-tests/
 *.har
 *storage-state*.json
 *session*.json
@@ -12,4 +16,3 @@ encrypted-handoff*.json
 .env
 .env.*
 *.tgz
-/skills-lock.json

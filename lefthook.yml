@@ -6,10 +6,9 @@ pre-commit:
     fmt:
       priority: 1
       glob: "**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,json,jsonc,css,scss,less,html,vue,graphql,gql,md,mdx,yml,yaml,toml}"
-      run:
-        bunx oxfmt --config oxfmt.config.ts --write --no-error-on-unmatched-pattern {staged_files}
+      run: bunx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
     lint:
       priority: 2
       glob: "**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,vue}"
-      run: bunx oxlint --config oxlint.config.ts --no-error-on-unmatched-pattern {staged_files}
+      run: bunx --no-install oxlint --no-error-on-unmatched-pattern {staged_files}

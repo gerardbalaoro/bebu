@@ -1,0 +1,4 @@
+interface:
+  display_name: "Writing Tests"
+  short_description: "Write behavior tests and assess test value"
+  default_prompt: "Use $writing-tests to write or review tests for this behavior."

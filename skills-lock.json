@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "git-conventions": {
+      "source": "gerardbalaoro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/git-conventions/SKILL.md",
+      "computedHash": "891172723e68e511b42fd3cc9cca21adb8f5013c5a6f4490edada84b11654631"
+    },
+    "typescript-conventions": {
+      "source": "gerardbalaoro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/typescript-conventions/SKILL.md",
+      "computedHash": "1ef055ea433a8bbdd785da123a63f57df1f2dbf6e856c8554f8192a47d78fdd2"
+    },
+    "writing-documentation": {
+      "source": "gerardbalaoro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/writing-documentation/SKILL.md",
+      "computedHash": "e246d6a3a15047384be499e143b8cd703712b124cbf6dcc672851142fb343cee"
+    },
+    "writing-tests": {
+      "source": "gerardbalaoro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/writing-tests/SKILL.md",
+      "computedHash": "904b9d706eeff89cf3ea26aa9b69c7f8eeaaf63eaec862d6719f0c6968a5e8f9"
+    }
+  }
+}
