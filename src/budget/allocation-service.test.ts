@@ -2,14 +2,16 @@
 /* oxlint-disable complexity -- This HTTP fixture models atomic server behavior across transaction endpoints. */
 /* oxlint-disable no-await-in-loop -- Each failure mode gets an isolated operation directory and backend. */
 /* oxlint-disable func-style -- Named domain functions follow the repository TypeScript conventions. */
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
+import { captureExecute } from "@crustjs/testing";
 import { z } from "zod";
 
+import { createApp } from "../cli/app.ts";
 import { BeyondClient } from "../firestore/client.ts";
 import { DataSchema, DocumentRoot, decode, encodeFields } from "../firestore/encoding.ts";
 import type { Data } from "../firestore/encoding.ts";
@@ -503,6 +505,63 @@ test("a process exit after persisting sending is recovered without creating anot
     const repeated = await restarted.apply(plan, requestId);
     expect(repeated.status).toBe("unknown");
     expect(backend.commits()).toBe(0);
+  });
+});
+
+test("CLI rejected applies return a structured failure and a nonzero exit code", async () => {
+  await withService(async (service, backend, home) => {
+    const plan = await service.preview("fund", "2026-10", { amount: 500 });
+    plan.createdAt = "2000-01-01T00:00:00.000Z";
+    const { hash: _hash, ...body } = plan;
+    plan.hash = allocationHash(body);
+    const file = nodePath.join(home, "plan.json");
+    await writeFile(file, JSON.stringify(plan), { mode: 0o600 });
+    const sessionFile = nodePath.join(home, "session.json");
+    await writeFile(sessionFile, JSON.stringify(backend.client.session), { mode: 0o600 });
+    const previousHome = process.env.BEBU_HOME;
+    const previousSession = process.env.BEBU_SESSION_FILE;
+    process.env.BEBU_HOME = home;
+    process.env.BEBU_SESSION_FILE = sessionFile;
+
+    const fetcher = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(backend.fetcher, { preconnect: globalThis.fetch.preconnect })
+    );
+
+    try {
+      const result = await captureExecute(createApp(), [
+        "allocations",
+        "apply",
+        "--plan",
+        file,
+        "--request-id",
+        requestId,
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+
+      const failure = z
+        .object({ error: z.string(), requestId: z.string(), status: z.string() })
+        .parse(JSON.parse(result.stderr));
+
+      expect(failure.status).toBe("rejected");
+      expect(failure.requestId).toBe(requestId);
+      expect(backend.commits()).toBe(0);
+    } finally {
+      fetcher.mockRestore();
+
+      if (previousHome === undefined) {
+        delete process.env.BEBU_HOME;
+      } else {
+        process.env.BEBU_HOME = previousHome;
+      }
+
+      if (previousSession === undefined) {
+        delete process.env.BEBU_SESSION_FILE;
+      } else {
+        process.env.BEBU_SESSION_FILE = previousSession;
+      }
+    }
   });
 });
 

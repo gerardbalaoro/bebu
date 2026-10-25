@@ -62,7 +62,15 @@ For allocation records, use allocations history. For category and nature totals,
 For positive historical averages, use allocations averages with an explicit reference month.
 For raw target settings, use targets list. Category availability is not target progress.
 
-For allocation writes, overspending coverage, or allocation undo, use the native Beyond Budget app.
+For one manual allocation, use allocations set --dry-run with --amount-minor or --match-linked.
+The CLI calculates the complete pool, availability, linked-account diagnostics, and native history effects.
+Use --plan-file to save the reviewed private plan. Apply it with allocations apply --plan and an explicit new --request-id.
+The plan expires after 15 minutes. Any changed dependency requires a new preview and request ID.
+Matching uses one active savings account's cleared balance. Several active accounts require a separate aggregate policy.
+For an identical allocation retry, reuse the original plan and request ID. Inspect allocations operation or allocations recover.
+Keep BEBU_HOME and its permanent operation records. An unknown outcome requires observation; recover does not resend it.
+Allocation recovery relies on the trusted local record and native marker, with no cross-device payload binding.
+For overspending coverage, reallocation, automatic income allocation, or allocation undo, use the native Beyond Budget app.
 CLI income does not fund categories. Uncleared income changes only the uncleared account balance.
 Clearing income moves the amount into the cleared balance and account history. Unclearing reverses those movements.
 Cleared, completed income increases allocation resources in a zero-based budget.
@@ -84,7 +92,7 @@ Notes and color remain editable within the command's other restrictions. Do not 
 For an identical retry, reuse the request ID and original payload. For a different operation, use a new request ID.
 For create retries, preserve the resolved id, dueAt, timezone, completed, and cleared fields.
 
-Save markers do not bind request IDs to payloads. An alreadyCommitted result proves marker existence only.
+For transaction commands, save markers do not bind request IDs to payloads. An alreadyCommitted result proves marker existence only.
 A retry can fail before marker lookup, including after deletion. After marker expiry, duplicate detection is not guaranteed.
 
 ## Command reference

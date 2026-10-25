@@ -1,3 +1,4 @@
+/* oxlint-disable no-await-in-loop -- CLI executions share process state and are checked sequentially. */
 import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -105,5 +106,28 @@ test("auth status and logout return JSON without a format flag", async () => {
     }
 
     await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test("allocation commands require explicit dry-run and reviewed apply inputs before authentication", async () => {
+  for (const args of [
+    ["allocations", "set", "category", "--month", "2026-10", "--amount-minor=100"],
+    ["allocations", "set", "category", "--month", "2026-10", "--amount-minor=100", "--dryrun"],
+    ["allocations", "apply"],
+    [
+      "allocations",
+      "set",
+      "category",
+      "--month",
+      "2026-10",
+      "--amount-minor=100",
+      "--dry-run",
+      "--match-linked",
+    ],
+  ]) {
+    const result = await captureExecute(createApp(), args);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).not.toContain("session expired");
   }
 });

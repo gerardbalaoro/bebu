@@ -29,6 +29,7 @@ import { TransactionCreateSchema, TransactionPatchSchema } from "../budget/trans
 import { TransactionService } from "../budget/transactions.ts";
 import { BeyondClient } from "../firestore/client.ts";
 import type { CommitOptions, CommitResult, Data } from "../firestore/encoding.ts";
+import { AllocationExecutionError, manualAllocationCommands } from "./allocation-commands.ts";
 import { compactFlag, errorMessage, payload, print } from "./io.ts";
 import { createSkillsCommand } from "./skills.ts";
 
@@ -102,6 +103,12 @@ const writeResult = (result: CommitResult, full?: boolean) => {
 
 const errorOutput = defineExtension(defineExtensionId("bebu.error-output")).onError(
   (error, { stderr, argv, commandPath }) => {
+    if (error instanceof AllocationExecutionError) {
+      stderr(JSON.stringify({ ...error.result, error: error.message }));
+
+      return true;
+    }
+
     const loginError =
       (commandPath.at(-2) === "auth" && commandPath.at(-1) === "login") ||
       (argv[0] === "auth" && argv[1] === "login");
@@ -390,9 +397,10 @@ const budgetCommand = defineCommand(
 
 const allocationsCommand = defineCommand(
   "allocations",
-  { description: "Preview allocation and inspect category allocation history" },
+  { description: "Plan and save manual allocations, inspect history, or preview target funding" },
   (command) =>
     command
+      .add(...manualAllocationCommands)
       .add(
         defineCommand(
           "preview",
@@ -629,7 +637,7 @@ export const createApp = (): AnyCrust => {
         title: "Browser session",
       },
       {
-        body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu changes only one-off expenses and income without reconciliation. Transfers, allocations, splits, repeats, refunds, debts, files, and linked transactions require separate flows. A completed card expense requires a category with enough funds.\n\nTransaction metadata changes accept notes, color, and cleared. The --request-id flag identifies the atomic commit and its save marker.\n\nFor an identical retry, reuse --request-id and the original payload. For a different operation, use a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves marker existence only. Marker expiry and validation before the commit also limit retries.",
+        body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu changes only one-off expenses and income without reconciliation. Transfers, splits, repeats, refunds, debts, files, and linked transactions require separate flows. For manual allocations, use allocations set --dry-run followed by allocations apply with the saved plan and an explicit request ID. A completed card expense requires a category with enough funds.\n\nTransaction metadata changes accept notes, color, and cleared. The --request-id flag identifies the atomic commit and its save marker.\n\nFor an identical retry, reuse --request-id and the original payload. For a different operation, use a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves marker existence only. Marker expiry and validation before the commit also limit retries.",
         title: "Write rules",
       },
     ],

@@ -6,20 +6,23 @@ amounts.
 
 ## Current Support
 
-| Need                                                     | Command                |
-| -------------------------------------------------------- | ---------------------- |
-| Category funds for a month                               | `categories funding`   |
-| Raw account links and allocation settings                | `budget diagnostics`   |
-| Allocation records and optional transaction associations | `allocations history`  |
-| Allocated amounts by category and nature                 | `allocations report`   |
-| Positive allocation and spending averages                | `allocations averages` |
-| Raw target settings                                      | `targets list`         |
-| Target or restricted smart funding preview               | `allocations preview`  |
+| Need                                                     | Command                                        |
+| -------------------------------------------------------- | ---------------------------------------------- |
+| Category funds for a month                               | `categories funding`                           |
+| Raw account links and allocation settings                | `budget diagnostics`                           |
+| Allocation records and optional transaction associations | `allocations history`                          |
+| Allocated amounts by category and nature                 | `allocations report`                           |
+| Positive allocation and spending averages                | `allocations averages`                         |
+| Raw target settings                                      | `targets list`                                 |
+| Target or restricted smart funding preview               | `allocations preview`                          |
+| Manual allocation or linked savings matching plan        | `allocations set`                              |
+| Apply a reviewed manual plan                             | `allocations apply`                            |
+| Inspect or recover a local allocation operation          | `allocations operation`, `allocations recover` |
 
 Use the [generated command reference](../../skills/bebu/SKILL.md) for arguments and restrictions.
 The preview supports a limited set of flat zero-based budgets and targets. It reports
-`executionSupported: false`. Allocation, reallocation, undo, and smart allocation writes remain
-unsupported.
+`executionSupported: false`. Manual allocation has a separate transaction-protected write path.
+Reallocation, undo, automatic income allocation, and smart allocation writes remain unsupported.
 
 Transaction dry runs show account balances, category funds, payment reserves, and allocation
 resources. Cleared, completed zero-based income increases allocation resources but does not fund
@@ -70,6 +73,13 @@ supported. Repeating targets and target forecasts remain unsupported.
 The direct writer returns before server confirmation. Undo subtracts the recorded change from the
 current allocation, then separately marks the original history entry.
 
+[Manual Allocation Writer](allocation-writer.md) describes the implemented command flow and support
+boundary.
+
+[Allocation Write Implementation Plan](allocation-write-plan.md) preserves disposable-budget runtime
+evidence from 2026-10-25. It covers optimistic transactions, native manual and linked saves, marker
+permissions, bounded carryover, and the proposed CLI implementation sequence.
+
 [Linked Income Allocation](linked-allocation.md) records creation, clearing changes, deletion, and
 their separate history writes. The CLI follows the recovered independent-income balance movements
 and retains its guards against linked-allocation writes.
@@ -79,13 +89,13 @@ overlap. `allocations preview --strategy smart` covers overspending and supporte
 upcoming map is empty, its stash is untrimmed, and upcoming balances are zero.
 
 [Allocation Rules](allocation-contract.md) contains the recovered formulas, defaults, ordering, and
-save boundaries. Those findings come from static analysis and read-only app observations in
-October 2026. No native allocation mutation fixture exists. Synthetic tests do not establish
+save boundaries. Those earlier findings come from static analysis and read-only app observations in
+October 2026. The implementation plan adds native mutation fixtures. Neither set establishes
 complete parity.
 
 Remaining work includes:
 
-- Allocation saves, later-period carryover, undo, and request identity.
+- Broader carryover, allocation undo, and shared request identity across devices.
 - Linked-account allocation and its reversal effects.
 - Parent and surplus coverage, including their precedence.
 - Smart planning with upcoming bills, stash completeness, and upstream recurring-transaction
@@ -95,8 +105,9 @@ Remaining work includes:
 Reallocation is a separate transaction flow, not two manual allocations. History deletion does not
 undo an allocation. A surplus forecast does not prove that money was allocated.
 
-Current save markers prove existence only. They do not bind a request ID to operation content.
-Retries also depend on marker expiry and validation before commit.
+Native save markers prove existence only. Manual allocation binds a request to a durable local
+operation record and never automatically resends uncertain work. Existing transaction-command
+retries still depend on marker expiry and validation before commit.
 
 ## Validate New Writes
 
