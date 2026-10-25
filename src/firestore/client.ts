@@ -4,6 +4,9 @@ import type { Session } from "../auth/session.ts";
 import { BudgetSchema } from "../budget/model.ts";
 import { DataSchema, DocumentRoot, newId, WireDocumentSchema, decode } from "./encoding.ts";
 import type { CommitOptions, CommitResult, Data, FirestoreDocument, Write } from "./encoding.ts";
+import { FirestoreError } from "./error.ts";
+
+export { FirestoreError } from "./error.ts";
 
 export type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -79,9 +82,7 @@ export class BeyondClient {
       const status = z.string().safeParse(details.success ? details.data.status : undefined);
       const message = z.string().safeParse(details.success ? details.data.message : undefined);
 
-      throw new Error(
-        `Firestore ${response.status}: ${status.data ?? "Request failed"}: ${message.data ?? ""}`
-      );
+      throw new FirestoreError(response.status, status.data ?? "UNKNOWN", message.data ?? "");
     }
 
     return schema.parse(result);
