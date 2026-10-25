@@ -1,0 +1,1142 @@
+{
+  "investigationDate": "2026-10-25",
+  "timezone": "Asia/Manila",
+  "backendTimestampDate": "2026-10-24 UTC",
+  "scope": "Authorized disposable zero-based budget; invented funds; integer minor units. Selected fields only; not a complete backend export. Identities and generated identifiers removed or replaced with aliases. Native save markers could not be enumerated.",
+  "artifact": {
+    "url": "https://app.beyondbudgetapp.com/64da0a2cd0fe10bc31cb.wasm",
+    "bytes": 35524906,
+    "sha256": "72fe8d2a10be04dcc5b19b0b8d30bff119c82a12aa920ae500b0dd995e6ab2a4",
+    "watSha256": "55a38446ec8231e9b169c01b243e6970fa39f0c200adaee7fab17b751dcfb93c"
+  },
+  "cases": [
+    {
+      "action": "0 -> 10000",
+      "evidence": "native manual save",
+      "category": "ordinary-category",
+      "before": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 100000,
+          "categoryCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": null
+        },
+        "categoryMetadata": {},
+        "accounts": {
+          "active-savings-account": {
+            "type": "CHECKING",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": null
+          }
+        },
+        "transactionCount": 1
+      },
+      "after": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 10000,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 90000,
+          "categoryCarriedOverAmount": 10000,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 10000,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": null
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": 10000
+          },
+          "historicalCarriedOver": {
+            "2026-11": 10000
+          }
+        },
+        "accounts": {
+          "active-savings-account": {
+            "type": "CHECKING",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": null
+          }
+        },
+        "transactionCount": 1
+      },
+      "newHistory": [
+        {
+          "overallocationAmount": 0,
+          "afterAmount": 10000,
+          "linkedCategoryId": "",
+          "source": "MANUAL",
+          "categoryId": "ordinary-category",
+          "undoneAt": null,
+          "periodId": "current-period",
+          "overallocationStatus": "NONE",
+          "beforeAmount": 0,
+          "accountId": ""
+        }
+      ],
+      "accountsUnchanged": true,
+      "transactionsUnchanged": true
+    },
+    {
+      "action": "10000 -> 20000",
+      "evidence": "controlled four-document transaction; app unloaded",
+      "category": "ordinary-category",
+      "before": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 10000,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 90000,
+          "categoryCarriedOverAmount": 10000,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 10000,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": null
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": 10000
+          },
+          "historicalCarriedOver": {
+            "2026-11": 10000
+          }
+        },
+        "accounts": {
+          "active-savings-account": {
+            "type": "CHECKING",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": null
+          }
+        },
+        "transactionCount": 1
+      },
+      "after": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 20000,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 80000,
+          "categoryCarriedOverAmount": 20000,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 20000,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": null
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": 20000
+          },
+          "historicalCarriedOver": {
+            "2026-11": 20000
+          }
+        },
+        "accounts": {
+          "active-savings-account": {
+            "type": "CHECKING",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": null
+          }
+        },
+        "transactionCount": 1
+      },
+      "newHistory": [
+        {
+          "beforeAmount": 10000,
+          "undoneAt": null,
+          "source": "MANUAL",
+          "categoryId": "ordinary-category",
+          "periodId": "current-period",
+          "afterAmount": 20000,
+          "overallocationStatus": "NONE",
+          "accountId": "",
+          "linkedCategoryId": "",
+          "overallocationAmount": 0
+        }
+      ],
+      "accountsUnchanged": true,
+      "transactionsUnchanged": true
+    },
+    {
+      "action": "20000 -> -5000",
+      "evidence": "controlled four-document transaction; app unloaded",
+      "category": "ordinary-category",
+      "before": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 20000,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 80000,
+          "categoryCarriedOverAmount": 20000,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 20000,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": null
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": 20000
+          },
+          "historicalCarriedOver": {
+            "2026-11": 20000
+          }
+        },
+        "accounts": {
+          "active-savings-account": {
+            "type": "CHECKING",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": null
+          }
+        },
+        "transactionCount": 1
+      },
+      "after": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": -5000,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 105000,
+          "categoryCarriedOverAmount": -5000,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": -5000,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": null
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": -5000
+          },
+          "historicalCarriedOver": {
+            "2026-11": -5000
+          }
+        },
+        "accounts": {
+          "active-savings-account": {
+            "type": "CHECKING",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": null
+          }
+        },
+        "transactionCount": 1
+      },
+      "newHistory": [
+        {
+          "afterAmount": -5000,
+          "overallocationAmount": 0,
+          "overallocationStatus": "NONE",
+          "source": "MANUAL",
+          "periodId": "current-period",
+          "categoryId": "ordinary-category",
+          "linkedCategoryId": "",
+          "beforeAmount": 20000,
+          "accountId": "",
+          "undoneAt": null
+        }
+      ],
+      "accountsUnchanged": true,
+      "transactionsUnchanged": true
+    },
+    {
+      "action": "0 -> -2500",
+      "evidence": "native manual save; one active linked savings account",
+      "category": "linked-category",
+      "before": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 85000,
+          "categoryCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account"]
+        },
+        "categoryMetadata": {},
+        "accounts": {
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          }
+        },
+        "transactionCount": 1
+      },
+      "after": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": -2500,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 87500,
+          "categoryCarriedOverAmount": -2500,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": -2500,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": -2500
+          },
+          "historicalCarriedOver": {
+            "2026-11": -2500
+          }
+        },
+        "accounts": {
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          }
+        },
+        "transactionCount": 1
+      },
+      "newHistory": [
+        {
+          "beforeAmount": 0,
+          "categoryId": "linked-category",
+          "linkedCategoryId": "",
+          "periodId": "current-period",
+          "overallocationStatus": "NONE",
+          "overallocationAmount": 0,
+          "undoneAt": null,
+          "afterAmount": -2500,
+          "accountId": "",
+          "source": "MANUAL"
+        }
+      ],
+      "accountsUnchanged": true,
+      "transactionsUnchanged": true
+    },
+    {
+      "action": "-2500 -> 0",
+      "evidence": "controlled four-document transaction; synthesized archived-zero orphan configuration; app unloaded",
+      "category": "linked-category",
+      "before": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": -2500,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 87500,
+          "categoryCarriedOverAmount": -2500,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": -2500,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account", "archived-zero-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": -2500
+          },
+          "historicalCarriedOver": {
+            "2026-11": -2500
+          }
+        },
+        "accounts": {
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          },
+          "archived-zero-account": {
+            "type": "SAVINGS",
+            "archived": true,
+            "balanceAmount": 0,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": ""
+          }
+        },
+        "transactionCount": 1
+      },
+      "after": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 85000,
+          "categoryCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account", "archived-zero-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": 0
+          },
+          "historicalCarriedOver": {
+            "2026-11": 0
+          }
+        },
+        "accounts": {
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          },
+          "archived-zero-account": {
+            "type": "SAVINGS",
+            "archived": true,
+            "balanceAmount": 0,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": ""
+          }
+        },
+        "transactionCount": 1
+      },
+      "newHistory": [
+        {
+          "overallocationAmount": 0,
+          "overallocationStatus": "NONE",
+          "categoryId": "linked-category",
+          "periodId": "current-period",
+          "source": "MANUAL",
+          "linkedCategoryId": "",
+          "accountId": "",
+          "undoneAt": null,
+          "beforeAmount": -2500,
+          "afterAmount": 0
+        }
+      ],
+      "accountsUnchanged": true,
+      "transactionsUnchanged": true
+    },
+    {
+      "action": "0 -> 100",
+      "evidence": "native manual save; synthesized archived-zero orphan configuration",
+      "category": "linked-category",
+      "before": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 85000,
+          "categoryCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account", "archived-zero-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": 0
+          },
+          "historicalCarriedOver": {
+            "2026-11": 0
+          }
+        },
+        "accounts": {
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          },
+          "archived-zero-account": {
+            "type": "SAVINGS",
+            "archived": true,
+            "balanceAmount": 0,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": ""
+          }
+        },
+        "transactionCount": 1
+      },
+      "after": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 100,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 84900,
+          "categoryCarriedOverAmount": 100,
+          "categoryBalance": {
+            "allocatedAmount": 0,
+            "carriedOverAmount": 100,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 0
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account", "archived-zero-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": 100
+          },
+          "historicalCarriedOver": {
+            "2026-11": 100
+          }
+        },
+        "accounts": {
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          },
+          "archived-zero-account": {
+            "type": "SAVINGS",
+            "archived": true,
+            "balanceAmount": 0,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": ""
+          }
+        },
+        "transactionCount": 1
+      },
+      "newHistory": [
+        {
+          "undoneAt": null,
+          "categoryId": "linked-category",
+          "linkedCategoryId": "",
+          "periodId": "current-period",
+          "source": "MANUAL",
+          "overallocationStatus": "NONE",
+          "accountId": "",
+          "overallocationAmount": 0,
+          "beforeAmount": 0,
+          "afterAmount": 100
+        }
+      ],
+      "accountsUnchanged": true,
+      "transactionsUnchanged": true
+    },
+    {
+      "action": "-2500 -> 5000",
+      "evidence": "controlled manual save; next-month allocation and real upcoming transaction preserved",
+      "category": "linked-category",
+      "before": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": -2500,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 87500,
+          "categoryCarriedOverAmount": -2500,
+          "categoryBalance": {
+            "allocatedAmount": 1000,
+            "carriedOverAmount": -2500,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 250
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account", "archived-zero-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-10": -2500,
+            "2026-11": 1000
+          },
+          "historicalCarriedOver": {
+            "2026-11": -2500
+          }
+        },
+        "accounts": {
+          "archived-zero-account": {
+            "type": "SAVINGS",
+            "archived": true,
+            "balanceAmount": 0,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": ""
+          },
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          }
+        },
+        "transactionCount": 2
+      },
+      "after": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 5000,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 80000,
+          "categoryCarriedOverAmount": 5000,
+          "categoryBalance": {
+            "allocatedAmount": 1000,
+            "carriedOverAmount": 5000,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 250
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": null,
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account", "archived-zero-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-11": 1000,
+            "2026-10": 5000
+          },
+          "historicalCarriedOver": {
+            "2026-11": 5000
+          }
+        },
+        "accounts": {
+          "archived-zero-account": {
+            "type": "SAVINGS",
+            "archived": true,
+            "balanceAmount": 0,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": ""
+          },
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          }
+        },
+        "transactionCount": 2
+      },
+      "newHistory": [
+        {
+          "periodId": "current-period",
+          "beforeAmount": -2500,
+          "linkedCategoryId": "",
+          "afterAmount": 5000,
+          "categoryId": "linked-category",
+          "undoneAt": null,
+          "accountId": "",
+          "overallocationStatus": "NONE",
+          "overallocationAmount": 0,
+          "source": "MANUAL"
+        }
+      ],
+      "accountsUnchanged": true,
+      "transactionsUnchanged": true
+    },
+    {
+      "action": "5000 -> 50100",
+      "evidence": "native manual save with FUND_OVERRUNS, controlled hierarchy, and payment-category presence",
+      "category": "linked-category",
+      "before": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 5000,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 79200,
+          "categoryCarriedOverAmount": 5000,
+          "categoryBalance": {
+            "allocatedAmount": 1000,
+            "carriedOverAmount": 5000,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 250
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": "FUND_OVERRUNS",
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account", "archived-zero-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-11": 1000,
+            "2026-10": 5000
+          },
+          "historicalCarriedOver": {
+            "2026-11": 5000
+          }
+        },
+        "accounts": {
+          "archived-zero-account": {
+            "type": "SAVINGS",
+            "archived": true,
+            "balanceAmount": 0,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": ""
+          },
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          }
+        },
+        "transactionCount": 2
+      },
+      "after": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 50100,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 34100,
+          "categoryCarriedOverAmount": 50100,
+          "categoryBalance": {
+            "allocatedAmount": 1000,
+            "carriedOverAmount": 50100,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 250
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": "FUND_OVERRUNS",
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account", "archived-zero-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-11": 1000,
+            "2026-10": 50100
+          },
+          "historicalCarriedOver": {
+            "2026-11": 50100
+          }
+        },
+        "accounts": {
+          "archived-zero-account": {
+            "type": "SAVINGS",
+            "archived": true,
+            "balanceAmount": 0,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": ""
+          },
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          }
+        },
+        "transactionCount": 2
+      },
+      "newHistory": [
+        {
+          "source": "MANUAL",
+          "afterAmount": 50100,
+          "categoryId": "linked-category",
+          "accountId": "",
+          "periodId": "current-period",
+          "overallocationAmount": 0,
+          "linkedCategoryId": "",
+          "beforeAmount": 5000,
+          "undoneAt": null,
+          "overallocationStatus": "NONE"
+        }
+      ],
+      "accountsUnchanged": true,
+      "transactionsUnchanged": true
+    },
+    {
+      "action": "5100 -> 5200",
+      "evidence": "production CLI manual writer; explicit optimistic transaction",
+      "category": "linked-category",
+      "before": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 5100,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 79100,
+          "categoryCarriedOverAmount": 5100,
+          "categoryBalance": {
+            "allocatedAmount": 1000,
+            "carriedOverAmount": 5100,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 250
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": "FUND_OVERRUNS",
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account", "archived-zero-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-11": 1000,
+            "2026-10": 5100
+          },
+          "historicalCarriedOver": {
+            "2026-11": 5100
+          }
+        },
+        "accounts": {
+          "archived-zero-account": {
+            "type": "SAVINGS",
+            "archived": true,
+            "balanceAmount": 0,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": ""
+          },
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          }
+        },
+        "transactionCount": 2
+      },
+      "after": {
+        "current": {
+          "allocationAmount": 100000,
+          "allocationCarriedOverAmount": 0,
+          "categoryBalance": {
+            "allocatedAmount": 5200,
+            "carriedOverAmount": 0,
+            "otherAmount": 0,
+            "spentAmount": 0
+          }
+        },
+        "next": {
+          "allocationCarriedOverAmount": 79000,
+          "categoryCarriedOverAmount": 5200,
+          "categoryBalance": {
+            "allocatedAmount": 1000,
+            "carriedOverAmount": 5200,
+            "otherAmount": 0,
+            "spentAmount": 0,
+            "upcomingAmount": 250
+          }
+        },
+        "categorySettings": {
+          "accumulationStrategy": "FUND_OVERRUNS",
+          "carryOverStrategy": null,
+          "parentCategoryId": null,
+          "linkedAccountIds": ["active-savings-account", "archived-zero-account"]
+        },
+        "categoryMetadata": {
+          "historicalAllocations": {
+            "2026-11": 1000,
+            "2026-10": 5200
+          },
+          "historicalCarriedOver": {
+            "2026-11": 5200
+          }
+        },
+        "accounts": {
+          "archived-zero-account": {
+            "type": "SAVINGS",
+            "archived": true,
+            "balanceAmount": 0,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": ""
+          },
+          "active-savings-account": {
+            "type": "SAVINGS",
+            "archived": false,
+            "balanceAmount": 100000,
+            "unclearedBalanceAmount": 0,
+            "linkedCategoryId": "linked-category"
+          }
+        },
+        "transactionCount": 2
+      },
+      "newHistory": [
+        {
+          "afterAmount": 5200,
+          "overallocationStatus": "NONE",
+          "overallocationAmount": 0,
+          "source": "MANUAL",
+          "undoneAt": null,
+          "categoryId": "linked-category",
+          "accountId": "",
+          "linkedCategoryId": "",
+          "beforeAmount": 5100,
+          "periodId": "current-period"
+        }
+      ],
+      "accountsUnchanged": true,
+      "transactionsUnchanged": true
+    }
+  ],
+  "protocol": {
+    "explicitOptimisticReadWrite": "begin/read/rollback and four-document commit accepted",
+    "defaultReadWrite": "403 PERMISSION_DENIED",
+    "readOnly": "begin/read/rollback accepted",
+    "unchangedReadOnlyDependency": "commit accepted",
+    "concurrentAccountIndexNotesChange": "409 ABORTED; root-and-marker commit rejected",
+    "missingMarkerReadThenConcurrentMarkerCreation": "root-only transaction still committed; receipt must be created with exists:false in financial commit",
+    "extendedMarkerFields": "403 PERMISSION_DENIED",
+    "nativeMarkerCreate": "accepted",
+    "duplicateNativeMarkerCreate": "409 ALREADY_EXISTS",
+    "knownMarkerGet": "accepted",
+    "missingMarkerGet": "404 NOT_FOUND",
+    "markerCollectionList": "403 PERMISSION_DENIED",
+    "exactFinancialWriteReplay": "FAILED_PRECONDITION; no extra history"
+  },
+  "carryoverNone": {
+    "setup": "controlled category-index patch, not a native settings fixture",
+    "currentAllocation": 15000,
+    "nextStoredCarriedOverAmount": 15000,
+    "nativeNextMonthCategoryAvailable": 0,
+    "nativeNextMonthPoolAfterLinkedMinus2500": 87500,
+    "conclusion": "Stored carryover and displayed funds differ. No general NONE propagation contract established."
+  },
+  "notExercised": [
+    "Deployed network response loss (transport simulations and a real local process-exit test cover recovery)",
+    "Transaction expiry",
+    "Concurrent period/category membership creation",
+    "Multiple later periods or next-month income, spending, and other funds",
+    "Permanent remote deduplication or TTL deletion",
+    "Historical writes and undo"
+  ]
+}
