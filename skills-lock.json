@@ -1,6 +1,11 @@
 {
   "version": 1,
   "skills": {
+    "bebu": {
+      "source": "./skills",
+      "sourceType": "local",
+      "computedHash": "1c498bdfa37ff5f39781f75c486af8dba83978ea541b1555be4fbc25b8a2d177"
+    },
     "git-conventions": {
       "source": "gerardbalaoro/skills",
       "sourceType": "github",

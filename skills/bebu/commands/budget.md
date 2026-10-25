@@ -4,8 +4,7 @@ Read budget diagnostics
 
 ## Subcommands
 
-- [`diagnostics`](budget/diagnostics.md) - Read stored account/category links and allocation
-  settings with their source paths
+- [`diagnostics`](budget/diagnostics.md) - Read stored account/category links and allocation settings with their source paths
 
 ---
 
