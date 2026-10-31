@@ -10,6 +10,19 @@ payeeId (null removes it), tagIds ([] removes all), dueAt, timezone, notes, colo
 sentiment, location, and reminder details. Balances, history, indexes, and usage counts change
 atomically.
 
+## Historical carryover guard
+
+If a transaction changes category availability or allocation resources before a later saved month,
+the CLI blocks execution. This includes category-only reassignments, creation, and deletion. A dry
+run reports executionSupported:false and summary.downstreamCarryover, with existing carryover
+residuals and affected months. It does not predict or write later-period amounts.
+
+Use categories carryover with an explicit budget to inspect stored cross-period residuals in a
+read-only snapshot. Historical policies and backend propagation remain unverified, including when
+residuals are zero. Future period materialization is outside this check. Preserve unexplained
+discontinuities and review their cause before any repair. Metadata-only and obligation-only changes
+remain subject to their usual guards.
+
 ## Recurring payments
 
 Upcoming entries also accept frequency, repeatCount, and nonWorkingDayPolicy. repeatCount is a total

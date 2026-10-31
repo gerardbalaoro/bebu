@@ -20,11 +20,13 @@ import { allocationAverages } from "../budget/allocation-averages.ts";
 import { allocationHistory } from "../budget/allocation-history.ts";
 import { allocationReport } from "../budget/allocation-report.ts";
 import { previewSmartAllocation, previewTargetAllocation } from "../budget/auto-allocation.ts";
+import { categoryCarryover } from "../budget/carryover.ts";
 import { budgetDiagnostics } from "../budget/diagnostics.ts";
 import { categoryFunding } from "../budget/funding.ts";
 import { LabelsSchema } from "../budget/labels.ts";
 import { CategoriesSchema } from "../budget/model.ts";
 import { categoryTargets } from "../budget/targets.ts";
+import { HistoricalTransactionError } from "../budget/transaction-carryover.ts";
 import {
   TransactionCreateSchema,
   TransactionPatchSchema,
@@ -59,6 +61,11 @@ const dryRunFlag = defineFlag("dry-run", {
   description: "Preview all changes without a commit",
   type: "boolean",
 });
+
+const historicalCarryoverSection = {
+  body: "If a transaction changes category availability or allocation resources before a later saved month, the CLI blocks execution. This includes category-only reassignments, creation, and deletion. A dry run reports executionSupported:false and summary.downstreamCarryover, with existing carryover residuals and affected months. It does not predict or write later-period amounts.\n\nUse categories carryover with an explicit budget to inspect stored cross-period residuals in a read-only snapshot. Historical policies and backend propagation remain unverified, including when residuals are zero. Future period materialization is outside this check. Preserve unexplained discontinuities and review their cause before any repair. Metadata-only and obligation-only changes remain subject to their usual guards.",
+  title: "Historical carryover guard",
+};
 
 const requestFlag = defineFlag("request-id", {
   description:
@@ -109,7 +116,11 @@ const writeResult = (result: CommitResult, full?: boolean) => {
 
 const errorOutput = defineExtension(defineExtensionId("bebu.error-output")).onError(
   (error, { stderr, argv, commandPath }) => {
-    if (error instanceof AllocationExecutionError || error instanceof FirestoreCommitError) {
+    if (
+      error instanceof AllocationExecutionError ||
+      error instanceof FirestoreCommitError ||
+      error instanceof HistoricalTransactionError
+    ) {
       stderr(JSON.stringify({ ...error.result, error: error.message }));
 
       return true;
@@ -309,8 +320,9 @@ const transactionsCommand = defineCommand(
                 body: 'Supply frequency, optional repeatCount, and optional nonWorkingDayPolicy in the create JSON. frequency defaults to ONE_OFF. Supported repeats are DAILY, WEEKLY, FORTNIGHTLY, FOUR_WEEKLY, MONTHLY, TWO_MONTHLY, QUARTERLY, HALF_YEARLY, ANNUALLY, and BIENNIALLY. Workday policies are KEEP_ORIGINAL_DATE (default), SHIFT_TO_NEXT_AVAILABLE_WORKDAY, and SHIFT_TO_PREVIOUS_AVAILABLE_WORKDAY. For example: {"accountId":"cashId","categoryId":"subscriptionId","amountMinor":15000,"dueAt":"2030-01-31T09:00:00+08:00","timezone":"Asia/Manila","frequency":"MONTHLY","repeatCount":12}. Preview with transactions create --file transaction.json --dry-run; add --full for exact writes.\n\nA new series starts at sequenceCount 1. repeatCount is the total number of payments; omitted, null, or zero means unlimited. A limit of 1 is valid on creation. Ongoing series start incomplete, even when due today or earlier. Omit completed or supply false. A single-payment repeat already due is completed; future single-payment repeats remain upcoming. The CLI uses the due timestamp to determine whether that single payment is due.\n\nFuture workday shifts preserve local time, the original date offset, and monthly anchors. DAILY workday repeats shift forward. The adjusted due date selects its saved period. Upcoming entries can be periodless; completed entries require an existing period. Upcoming expenses affect only obligations, indexes, and usage counts. No completed balance, spending, payment-reserve, history, or allocation effects occur until completion.\n\nCreation saves one initial canonical entry and its indexes atomically. It does not generate later occurrences or complete an ongoing payment. Use the native app for completion and occurrence generation. One-off entries cannot have a finite repeat limit or a workday-shift policy. Automatic allocation remains disabled.',
                 title: "Recurring transactions",
               },
+              historicalCarryoverSection,
               {
-                body: 'Use type OUTFLOW for a purchase or REFUND for a credit-card refund. amountMinor is always positive. A refund requires accountId for the card and categoryId for an ordinary expense category. For example: {"type":"REFUND","accountId":"cardId","categoryId":"groceriesId","amountMinor":12500,"dueAt":"2026-10-01T12:00:00+08:00"}. The stored refund is a positive OUTFLOW with subtype REFUND. Expense categories linked to other accounts require the native app.\n\nCard purchases can overspend a category. Both spending and the linked payment category reserve change by the full purchase amount; refunds reverse those movements. This does not allocate cash to cover overspending. An uncleared entry changes only the uncleared account balance; clearing moves it into the cleared balance and account history. Expense-category spending changes regardless of clearing.\n\nHistorical dueAt timestamps are preserved. Completed entries and one-off creation require a saved budget period; historical allocation support is not required. History uses the due-date month in the CLI runtime timezone. Use --dry-run to inspect balances, spending, and reserves; add --full for exact writes.',
+                body: 'Use type OUTFLOW for a purchase or REFUND for a credit-card refund. amountMinor is always positive. A refund requires accountId for the card and categoryId for an ordinary expense category. For example: {"type":"REFUND","accountId":"cardId","categoryId":"groceriesId","amountMinor":12500,"dueAt":"2026-10-01T12:00:00+08:00"}. The stored refund is a positive OUTFLOW with subtype REFUND. Expense categories linked to other accounts require the native app.\n\nCard purchases can overspend a category. Both spending and the linked payment category reserve change by the full purchase amount; refunds reverse those movements. This does not allocate cash to cover overspending. An uncleared entry changes only the uncleared account balance; clearing moves it into the cleared balance and account history. Expense-category spending changes regardless of clearing.\n\nHistorical dueAt timestamps are preserved. Completed entries and one-off creation require a saved budget period; the historical carryover guard also applies. History uses the due-date month in the CLI runtime timezone. Use --dry-run to inspect balances, spending, and reserves; add --full for exact writes.',
                 title: "Card purchases and refunds",
               },
               {
@@ -342,6 +354,7 @@ const transactionsCommand = defineCommand(
                 body: "Use schema for the complete transactionUpdate payload. amountMinor is a positive integer; the CLI preserves the purchase, refund, or income sign. Editable fields include accountId, categoryId, payeeId (null removes it), tagIds ([] removes all), dueAt, timezone, notes, color, cleared, sentiment, location, and reminder details. Balances, history, indexes, and usage counts change atomically.",
                 title: "Editable fields",
               },
+              historicalCarryoverSection,
               {
                 body: "Upcoming entries also accept frequency, repeatCount, and nonWorkingDayPolicy. repeatCount is a total sequence limit; null or zero means unlimited. A positive limit is at least sequenceCount + 1. Changing frequency resets sequenceCount to 1 and repeatCount to unlimited unless a new limit is supplied.\n\nFor an upcoming recurring amount or date edit, recurrenceScope selects THIS_PAYMENT or THIS_AND_LATER (default). THIS_PAYMENT preserves the series baseline for later payments. Resubmitting the current amount or date with THIS_AND_LATER also replaces its future baseline. Only the selected canonical entry changes; already-created occurrences require separate edits.\n\ndueAt accepts an ISO timestamp with an explicit offset. The CLI keeps its time of day and calculates dates in the stored transaction timezone, or the supplied timezone. Weekend policies adjust future dates and retain their original schedule anchors. DAILY workday repeats always shift forward. Upcoming months without saved periods remain periodless. This command does not complete payments or generate occurrences.",
                 title: "Recurring payments",
@@ -380,6 +393,7 @@ const transactionsCommand = defineCommand(
                 body: "Recurring deletion requires --scope THIS_PAYMENT or --scope THIS_AND_LATER. THIS_PAYMENT deletes the selected occurrence and preserves already-generated successors. THIS_AND_LATER deletes the selected occurrence and every validated forward clone-linked occurrence, including completed entries and upcoming obligations. Earlier occurrences and their nonempty clone links remain unchanged. A one-off transaction defaults to a single deletion.\n\nExample: bebu transactions delete <id> --scope THIS_AND_LATER --dry-run. Inspect deletedTransactions, preservedTransactions, account balances, category funds, payment reserves, and allocation resources. Add --full for exact atomic writes and version preconditions.\n\nMembership follows canonical clonedToTransactionId links. eventId never selects records. Budget identity, consecutive sequence numbers, increasing dates, frequency, timezone, account/category targets, payee, notes, type, and subtype must agree at each boundary. A broken link, cycle, branch, incompatible boundary, missing dependency, or active allocation effect rejects the entire plan.",
                 title: "Deletion scopes",
               },
+              historicalCarryoverSection,
               {
                 body: "Every deletion scope requires an editable canonical record whose transaction and budget IDs match the selected document.",
                 title: "Eligibility",
@@ -721,6 +735,7 @@ export const createApp = (): AnyCrust => {
         body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu creates one-off or recurring expenses, income, and card refunds (type REFUND with a positive amountMinor and expense categoryId). Use frequency, repeatCount, and nonWorkingDayPolicy to create a recurring series. Read transactions create --help for completion and period rules. Updates also support existing upcoming recurring payments. Recurring deletion requires an explicit --scope; read transactions delete --help and inspect its dry run. Transfers, splits, debts, files, reconciliation, and active linked allocation effects require separate flows. For manual allocations, use allocations set --dry-run followed by allocations apply with the saved plan and an explicit request ID. Card purchases can overspend a category; the full purchase amount changes spending and the payment reserve without allocating funds. Refunds reverse those effects. Historical dates are retained.\n\nTransaction updates accept amounts, accounts, categories, payees, tags, dates, cleared status, and metadata. Upcoming entries also accept recurrence rules. Read transactions update --help for scope and restrictions. The --request-id flag identifies the atomic commit and its save marker.\n\nFor an identical retry, reuse --request-id and the original payload. For a different operation, use a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves marker existence only. Marker expiry and validation before the commit also limit retries.",
         title: "Write rules",
       },
+      historicalCarryoverSection,
       {
         body: "Commit errors report requestId, outcome, conflict, marker, preconditions, and recovery. For outcome rejected with recovery refresh-preview, read the current state and run a fresh dry run. Review the new effects before retrying with the original payload and request ID. For create retries, preserve the resolved transaction ID, date, timezone, completion, and clearing fields.\n\nFor outcome unknown or recovery inspect-before-retry, inspect the transaction, affected documents, and save marker before any resend. An absent marker after a lost response does not establish rejection. The CLI never automatically retries a failed commit. Transaction commands have no durable recovery command.",
         title: "Commit recovery",
@@ -743,27 +758,71 @@ export const createApp = (): AnyCrust => {
         "categories",
         { description: "Read expense and payment categories" },
         (command) =>
-          command.add(fundingCommand).add(
-            defineCommand("list", { description: "List category IDs and types" }, (leaf) =>
-              leaf.flags(...readFlags).action(async ({ flags, stdout }) => {
-                const clientForResult = await clientFor(flags.budget);
-
-                const stashResult = await clientForResult.stash(
-                  "GROUPS_AND_CATEGORIES",
-                  CategoriesSchema
-                );
-
-                const rows = Object.values(stashResult.data.data.categories);
-                print(
-                  stdout,
-                  flags.full === true
-                    ? rows
-                    : rows.map((row) => pick(row, ["id", "name", "type", "groupId", "archived"])),
-                  flags.compact
-                );
-              })
+          command
+            .add(fundingCommand)
+            .add(
+              defineCommand(
+                "carryover",
+                {
+                  description:
+                    "Audit stored category carryover across saved months without financial writes",
+                  sections: [
+                    {
+                      body: "Compare consecutive saved months under each category's explicit current ALL policy. A signed residual is stored next-month carryover minus prior raw available funds. Discontinuities are observations; they do not establish an incorrect baseline or authorize repairs. Missing amounts, unsupported policies, special categories, and calendar gaps remain unknown. No missing financial amount becomes zero. Historical policy and backend propagation remain unverified, even when residuals are zero. Reads use one read-only Firestore snapshot.",
+                      title: "Interpretation",
+                    },
+                  ],
+                },
+                (leaf) =>
+                  leaf
+                    .flags(
+                      ...readFlags,
+                      { description: "Inspect one category ID", name: "category", type: "string" },
+                      {
+                        description: "Start at this saved YYYY-MM month",
+                        name: "from-month",
+                        type: "string",
+                      },
+                      {
+                        description: "End at this saved YYYY-MM month",
+                        name: "through-month",
+                        type: "string",
+                      }
+                    )
+                    .action(async ({ flags, stdout }) => {
+                      print(
+                        stdout,
+                        await categoryCarryover(await clientFor(flags.budget), {
+                          categoryId: flags.category,
+                          fromMonth: flags["from-month"],
+                          throughMonth: flags["through-month"],
+                        }),
+                        flags.compact
+                      );
+                    })
+              )
             )
-          )
+            .add(
+              defineCommand("list", { description: "List category IDs and types" }, (leaf) =>
+                leaf.flags(...readFlags).action(async ({ flags, stdout }) => {
+                  const clientForResult = await clientFor(flags.budget);
+
+                  const stashResult = await clientForResult.stash(
+                    "GROUPS_AND_CATEGORIES",
+                    CategoriesSchema
+                  );
+
+                  const rows = Object.values(stashResult.data.data.categories);
+                  print(
+                    stdout,
+                    flags.full === true
+                      ? rows
+                      : rows.map((row) => pick(row, ["id", "name", "type", "groupId", "archived"])),
+                    flags.compact
+                  );
+                })
+              )
+            )
       )
     )
     .add(

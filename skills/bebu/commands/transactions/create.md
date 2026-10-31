@@ -29,6 +29,19 @@ occurrences or complete an ongoing payment. Use the native app for completion an
 generation. One-off entries cannot have a finite repeat limit or a workday-shift policy. Automatic
 allocation remains disabled.
 
+## Historical carryover guard
+
+If a transaction changes category availability or allocation resources before a later saved month,
+the CLI blocks execution. This includes category-only reassignments, creation, and deletion. A dry
+run reports executionSupported:false and summary.downstreamCarryover, with existing carryover
+residuals and affected months. It does not predict or write later-period amounts.
+
+Use categories carryover with an explicit budget to inspect stored cross-period residuals in a
+read-only snapshot. Historical policies and backend propagation remain unverified, including when
+residuals are zero. Future period materialization is outside this check. Preserve unexplained
+discontinuities and review their cause before any repair. Metadata-only and obligation-only changes
+remain subject to their usual guards.
+
 ## Card purchases and refunds
 
 Use type OUTFLOW for a purchase or REFUND for a credit-card refund. amountMinor is always positive.
@@ -45,7 +58,7 @@ into the cleared balance and account history. Expense-category spending changes 
 clearing.
 
 Historical dueAt timestamps are preserved. Completed entries and one-off creation require a saved
-budget period; historical allocation support is not required. History uses the due-date month in the
+budget period; the historical carryover guard also applies. History uses the due-date month in the
 CLI runtime timezone. Use --dry-run to inspect balances, spending, and reserves; add --full for
 exact writes.
 

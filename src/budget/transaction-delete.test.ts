@@ -82,7 +82,7 @@ interface Backend {
   beforeCommit?: () => void;
 }
 
-function fixture() {
+function fixture(options: { materializedFuture?: boolean } = {}) {
   const earlier = occurrence("earlier", {
     clonedToTransactionId: "obsolete",
     dueAt: "2026-09-01T12:00:00Z",
@@ -102,6 +102,17 @@ function fixture() {
     yearMonth: "2026-11",
   });
 
+  const availablePeriods = new Map([
+    ["2026-09", { id: "september" }],
+    ["2026-10", { id: "october" }],
+  ]);
+
+  if (options.materializedFuture === false) {
+    delete upcoming.periodId;
+  } else {
+    availablePeriods.set("2026-11", { id: "november" });
+  }
+
   const unrelated = occurrence("valid-service", {
     notes: "Different valid service",
     targetTo: { id: "other", linkedObjectId: null, linkedObjectType: null, type: "CATEGORY" },
@@ -111,11 +122,7 @@ function fixture() {
     [
       BudgetPath,
       {
-        availablePeriods: {
-          "2026-09": { id: "september" },
-          "2026-10": { id: "october" },
-          "2026-11": { id: "november" },
-        },
+        availablePeriods: Object.fromEntries(availablePeriods),
         stashIdentifiers: {
           ACCOUNTS: "accounts",
           GROUPS_AND_CATEGORIES: "categories",
@@ -665,8 +672,8 @@ test("dry-run reads and predecessor queries share a read-only snapshot and never
   expect(requests.filter((request) => request.path.endsWith(":rollback"))).toHaveLength(1);
 });
 
-test("all linked deletions, reversals, indexes, and one marker commit in a single snapshot transaction", async () => {
-  const { service, requests } = fixture();
+test("current-period and periodless deletions, reversals, indexes, and one marker commit atomically", async () => {
+  const { service, requests } = fixture({ materializedFuture: false });
 
   const result = await service.delete("obsolete", {
     requestId: "ABCDEFGHIJKLMNOPQRST",
@@ -696,7 +703,6 @@ test("all linked deletions, reversals, indexes, and one marker commit in a singl
 
   for (const suffix of [
     "periods/october",
-    "periods/november",
     "stashes/accounts",
     "stashes/categories",
     "stashes/transactions",
@@ -707,10 +713,29 @@ test("all linked deletions, reversals, indexes, and one marker commit in a singl
   }
 });
 
+test("a completed recurring deletion cannot bypass unverified later-period carryover", async () => {
+  const { service, documents, requests } = fixture();
+  const before = structuredClone(documents);
+  const preview = await service.delete("obsolete", { dryRun: true, scope: "THIS_AND_LATER" });
+  expect(preview).toMatchObject({
+    executionSupported: false,
+    summary: { downstreamCarryover: { laterMonths: ["2026-11"], status: "unverified" } },
+  });
+  await assert.rejects(
+    service.delete("obsolete", { scope: "THIS_AND_LATER" }),
+    /Historical funding changes.*carryover/u
+  );
+  expect(requests.some((request) => request.path.endsWith(":commit"))).toBe(false);
+  expect(documents).toEqual(before);
+});
+
 test.each(["predecessor", "new incoming edge", "allocation history"])(
   "concurrent %s changes abort without partial writes or automatic retry",
   async (change) => {
-    const { service, documents, earlier, backend, requests } = fixture();
+    const { service, documents, earlier, backend, requests } = fixture({
+      materializedFuture: false,
+    });
+
     backend.beforeCommit = () => {
       if (change === "predecessor") {
         documents.set(`${BudgetPath}/transactions/earlier`, {

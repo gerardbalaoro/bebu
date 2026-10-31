@@ -19,6 +19,19 @@ identity, consecutive sequence numbers, increasing dates, frequency, timezone, a
 targets, payee, notes, type, and subtype must agree at each boundary. A broken link, cycle, branch,
 incompatible boundary, missing dependency, or active allocation effect rejects the entire plan.
 
+## Historical carryover guard
+
+If a transaction changes category availability or allocation resources before a later saved month,
+the CLI blocks execution. This includes category-only reassignments, creation, and deletion. A dry
+run reports executionSupported:false and summary.downstreamCarryover, with existing carryover
+residuals and affected months. It does not predict or write later-period amounts.
+
+Use categories carryover with an explicit budget to inspect stored cross-period residuals in a
+read-only snapshot. Historical policies and backend propagation remain unverified, including when
+residuals are zero. Future period materialization is outside this check. Preserve unexplained
+discontinuities and review their cause before any repair. Metadata-only and obligation-only changes
+remain subject to their usual guards.
+
 ## Eligibility
 
 Every deletion scope requires an editable canonical record whose transaction and budget IDs match

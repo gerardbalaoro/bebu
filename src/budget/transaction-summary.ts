@@ -109,6 +109,7 @@ const categoryChanges = (plan: MutationPlan, transaction: Transaction) => {
             after: fundingAmounts(after),
             before: fundingAmounts(before),
             id,
+            periodId: transaction.periodId,
             role,
             yearMonth: transaction.yearMonth,
           },

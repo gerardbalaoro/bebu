@@ -236,6 +236,155 @@ const writesFrom = (result: CommitResult): Write[] => {
   return result.body.writes;
 };
 
+test.each(["amount", "category", "create", "delete"])(
+  "historical %s changes disclose downstream uncertainty and reject execution",
+  async (operation) => {
+    const { service, documents, calls } = fixture();
+    documents.set(budgetPath, {
+      ...documents.get(budgetPath),
+      availablePeriods: { "2026-10": { id: "periodOne" }, "2026-11": { id: "laterPeriod" } },
+    });
+    documents.set(`${budgetPath}/periods/laterPeriod`, {
+      balances: {
+        spend: { allocatedAmount: 0, carriedOverAmount: 12_500, otherAmount: 0, spentAmount: 0 },
+      },
+    });
+    documents.set(`${budgetPath}/stashes/categoriesIndex`, {
+      data: {
+        categories: {
+          cardCategory: {
+            id: "cardCategory",
+            linkedAccountIds: ["card"],
+            type: "CREDIT_CARD_PAYMENT",
+          },
+          leisure: { carryOverStrategy: "ALL", id: "leisure", type: "DEFAULT" },
+          spend: { carryOverStrategy: "ALL", id: "spend", type: "DEFAULT" },
+        },
+      },
+    });
+    documents.set(`${budgetPath}/periods/periodOne`, {
+      balances: {
+        spend: { allocatedAmount: 250, carriedOverAmount: 0, otherAmount: 0, spentAmount: 250 },
+      },
+    });
+    documents.set(`${budgetPath}/stashes/leisure`, {
+      data: { completedTransactions: {}, historicalSpending: {} },
+    });
+
+    const change = async (dryRun: boolean) => {
+      switch (operation) {
+        case "category": {
+          return await service.update(transactionId, { categoryId: "leisure" }, { dryRun });
+        }
+
+        case "create": {
+          return await service.create(
+            {
+              accountId: "cash",
+              amountMinor: 300,
+              categoryId: "spend",
+              completed: true,
+              dueAt: timestamp,
+            },
+            { dryRun }
+          );
+        }
+
+        case "delete": {
+          return await service.delete(transactionId, { dryRun });
+        }
+
+        case "amount": {
+          return await service.update(transactionId, { amountMinor: 300 }, { dryRun });
+        }
+
+        default: {
+          throw new Error("Unexpected test operation");
+        }
+      }
+    };
+
+    const preview = await change(true);
+    expect(preview).toMatchObject({
+      executionSupported: false,
+      summary: {
+        downstreamCarryover: {
+          laterMonths: ["2026-11"],
+          status: "unverified",
+        },
+      },
+    });
+    expect(
+      preview.summary?.downstreamCarryover?.audit.comparisons.find(
+        (row) => row.categoryId === "spend"
+      )
+    ).toMatchObject({
+      residualAmount: 12_500,
+      status: "discontinuity",
+    });
+    expect(
+      writesFrom(preview).some(
+        (write) => write.update?.name === `${budgetPath}/periods/laterPeriod`
+      )
+    ).toBe(false);
+    await assert.rejects(change(false), /Historical funding changes.*carryover/u);
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+  }
+);
+
+test("metadata-only historical previews do not require or rewrite later funding periods", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(budgetPath, {
+    ...documents.get(budgetPath),
+    availablePeriods: { "2026-10": { id: "periodOne" }, "2026-11": { id: "missingPeriod" } },
+  });
+  const preview = await service.update(transactionId, { notes: "Reviewed" }, { dryRun: true });
+  expect(preview).toMatchObject({
+    executionSupported: true,
+    summary: { downstreamCarryover: null },
+  });
+  expect(calls.some((call) => call.path.endsWith("/periods/missingPeriod"))).toBe(false);
+});
+
+test("an inconsistent transaction month cannot bypass the downstream funding guard", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    yearMonth: "2027-01",
+  });
+  await assert.rejects(
+    service.update(transactionId, { amountMinor: 300 }),
+    /month\/period mismatch/u
+  );
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("historical income resources remain guarded even without category balance changes", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(budgetPath, {
+    ...documents.get(budgetPath),
+    availablePeriods: { "2026-10": { id: "periodOne" }, "2026-11": { id: "later" } },
+    type: "ZERO_BASED",
+  });
+  documents.set(`${budgetPath}/periods/later`, { balances: {} });
+
+  const input = TransactionCreateSchema.parse({
+    accountId: "cash",
+    amountMinor: 125,
+    completed: true,
+    dueAt: timestamp,
+    type: "INFLOW",
+  });
+
+  const preview = await service.create(input, { dryRun: true });
+  expect(preview).toMatchObject({
+    executionSupported: false,
+    summary: { downstreamCarryover: { categoryIds: [], resourcePoolAffected: true } },
+  });
+  await assert.rejects(service.create(input), /Historical funding changes.*carryover/u);
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
 test("legacy history pages retain missing values and continue past malformed records", async () => {
   const omitted = new Set([
     "autoAllocateIfCapable",
@@ -1455,7 +1604,7 @@ test("delete and cleared previews show reversal and uncleared changes without al
 test("CLI funding, diagnostics, and compact dry runs expose semantic results without writes", async () => {
   const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-funding-cli-"));
   const previous = process.env.BEBU_SESSION_FILE;
-  const { fetcher, calls } = fixture();
+  const { fetcher, calls, documents } = fixture();
 
   const fetchMock = spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(fetcher, { preconnect: fetch.preconnect })
@@ -1562,6 +1711,33 @@ test("CLI funding, diagnostics, and compact dry runs expose semantic results wit
     expect(JSON.parse(full.stdout)).toHaveProperty("body.writes", expect.any(Array));
     expect(JSON.parse(full.stdout)).toMatchObject({
       summary: { categories: [] },
+    });
+
+    documents.set(budgetPath, {
+      ...documents.get(budgetPath),
+      availablePeriods: { "2026-10": { id: "periodOne" }, "2026-11": { id: "later" } },
+    });
+    documents.set(`${budgetPath}/periods/later`, { balances: {} });
+    await writeFile(payload, JSON.stringify({ amountMinor: 300 }));
+
+    const blocked = await captureExecute(createApp(), [
+      "transactions",
+      "update",
+      transactionId,
+      "--budget",
+      "testBudget",
+      "--file",
+      payload,
+      "--request-id",
+      "historical-change",
+      "--compact",
+    ]);
+
+    expect(blocked.exitCode).toBe(1);
+    expect(JSON.parse(blocked.stderr)).toMatchObject({
+      downstreamCarryover: { executionSupported: false, laterMonths: ["2026-11"] },
+      executionSupported: false,
+      requestId: "historical-change",
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   } finally {

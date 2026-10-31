@@ -16,6 +16,10 @@ import { AccountsSchema } from "./accounts.ts";
 import { requireIndependentTransaction } from "./allocation-effects.ts";
 import { LabelsSchema } from "./labels.ts";
 import { CategoriesSchema } from "./model.ts";
+import {
+  HistoricalTransactionError,
+  previewTransactionCarryover,
+} from "./transaction-carryover.ts";
 import { planRecurringDeletion, removeTransactionReminder } from "./transaction-delete.ts";
 import { editTransaction } from "./transaction-edit.ts";
 import {
@@ -231,6 +235,24 @@ export class TransactionService {
 
   constructor(client: BeyondClient) {
     this.client = client;
+  }
+  private async commit<Summary extends ReturnType<typeof transactionSummary>>(
+    plan: MutationPlan,
+    summary: Summary,
+    context: TransactionContext,
+    options: CommitOptions
+  ) {
+    const downstreamCarryover = await previewTransactionCarryover(plan, summary, context);
+
+    if (downstreamCarryover !== null && options.dryRun !== true) {
+      throw new HistoricalTransactionError(downstreamCarryover, options.requestId);
+    }
+
+    return {
+      ...(await this.client.commit(plan.writes(), options, plan.snapshot)),
+      executionSupported: downstreamCarryover === null,
+      summary: options.dryRun === true ? { ...summary, downstreamCarryover } : undefined,
+    };
   }
   async context(snapshot?: FirestoreTransaction) {
     const budget = await this.client.discover(snapshot);
@@ -460,12 +482,13 @@ export class TransactionService {
     });
     await this.apply(plan, transaction, 1, context);
 
-    const summary =
-      options.dryRun === true ? transactionSummary(plan, null, transaction) : undefined;
+    const summary = transactionSummary(plan, null, transaction);
 
-    const result = await this.client.commit(plan.writes(), options);
-
-    return { ...result, automaticAllocation: false, summary, transactionId: id };
+    return {
+      ...(await this.commit(plan, summary, context, options)),
+      automaticAllocation: false,
+      transactionId: id,
+    };
   }
   private async apply(
     plan: MutationPlan,
@@ -586,14 +609,12 @@ export class TransactionService {
     plan.extra.push({ currentDocument: { updateTime: doc.updateTime }, delete: doc.name });
     await this.apply(plan, transaction, -1, context);
 
-    const summary =
-      options.dryRun === true ? transactionSummary(plan, transaction, null) : undefined;
+    const summary = transactionSummary(plan, transaction, null);
 
     return {
-      ...(await this.client.commit(plan.writes(), options)),
+      ...(await this.commit(plan, summary, context, options)),
       automaticAllocation: false,
       deleted: true,
-      summary,
       transactionId: id,
     };
   }
@@ -640,23 +661,19 @@ export class TransactionService {
         throw new Error("Deletion exceeds the atomic write limit. Select a shorter verified chain");
       }
 
-      const summary =
-        options.dryRun === true
-          ? {
-              ...transactionSummary(plan, selection.deleted[0] ?? null, null, selection.deleted),
-              deletedTransactions: selection.deleted.map(transactionDetails),
-              deletionScope: options.scope,
-              preservedTransactions: selection.preserved.map(transactionDetails),
-            }
-          : undefined;
+      const summary = {
+        ...transactionSummary(plan, selection.deleted[0] ?? null, null, selection.deleted),
+        deletedTransactions: selection.deleted.map(transactionDetails),
+        deletionScope: options.scope,
+        preservedTransactions: selection.preserved.map(transactionDetails),
+      };
 
       return {
-        ...(await this.client.commit(writes, options, snapshot)),
+        ...(await this.commit(plan, summary, context, options)),
         automaticAllocation: false,
         deleted: true,
         deletedTransactionIds: selection.deleted.map((transaction) => transaction.id),
         scope: options.scope,
-        summary,
         transactionId: id,
       };
     } finally {
@@ -753,13 +770,11 @@ export class TransactionService {
 
     await updateTransactionIndexes(plan, transaction, after, context);
 
-    const summary =
-      options.dryRun === true ? transactionSummary(plan, transaction, after) : undefined;
+    const summary = transactionSummary(plan, transaction, after);
 
     return {
-      ...(await this.client.commit(plan.writes(), options)),
+      ...(await this.commit(plan, summary, context, options)),
       automaticAllocation: false,
-      summary,
       transactionId: id,
     };
   }

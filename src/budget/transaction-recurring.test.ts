@@ -310,6 +310,10 @@ test("the current occurrence date can become the future date baseline without mo
 
 test("a completed generated recurring expense edits its ledger while retaining allocation flags and the next occurrence", async () => {
   const { service, documents, transaction, requests } = fixture();
+  documents.set(BudgetPath, {
+    ...documents.get(BudgetPath),
+    availablePeriods: { "2026-10": { id: "periodOne" } },
+  });
   documents.set(`${BudgetPath}/transactions/${TransactionId}`, {
     ...transaction,
     clonedToTransactionId: "NextRecurringPayment",

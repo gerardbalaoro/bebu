@@ -62,6 +62,19 @@ For an identical retry, reuse --request-id and the original payload. For a diffe
 a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves
 marker existence only. Marker expiry and validation before the commit also limit retries.
 
+## Historical carryover guard
+
+If a transaction changes category availability or allocation resources before a later saved month,
+the CLI blocks execution. This includes category-only reassignments, creation, and deletion. A dry
+run reports executionSupported:false and summary.downstreamCarryover, with existing carryover
+residuals and affected months. It does not predict or write later-period amounts.
+
+Use categories carryover with an explicit budget to inspect stored cross-period residuals in a
+read-only snapshot. Historical policies and backend propagation remain unverified, including when
+residuals are zero. Future period materialization is outside this check. Preserve unexplained
+discontinuities and review their cause before any repair. Metadata-only and obligation-only changes
+remain subject to their usual guards.
+
 ## Commit recovery
 
 Commit errors report requestId, outcome, conflict, marker, preconditions, and recovery. For outcome

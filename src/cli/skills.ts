@@ -47,6 +47,11 @@ Account balances describe money or debt in accounts. Category funds describe bud
 For category funds, use categories funding with an explicit month. Keep otherAmount and carryover in the available amount.
 Upcoming obligations are separate from available funds. This query does not calculate ready-to-allocate funds or parent totals.
 
+For stored cross-period carryover, use categories carryover with an explicit budget and optional saved-month range.
+The read-only snapshot reports raw residuals under explicit current ALL policies, with document versions.
+Missing amounts, special categories, unsupported policies, and calendar gaps remain unknown without financial defaults.
+A discontinuity does not establish an incorrect baseline. Zero residuals do not verify historical policy or propagation.
+
 For account/category links or allocation settings, use budget diagnostics. Report the returned values with their document paths.
 Unknown values and absent settings have no inferred meaning or default.
 
@@ -104,6 +109,12 @@ Category refund spending history decreases; payee/tag spending history uses the 
 Before a transaction change, inspect --dry-run. The summary shows metadata, account balances, category funds, and allocation resources before and after.
 The summary explicitly reports automaticAllocation:false. Add --full to inspect the Firestore writes and preconditions.
 A preview describes the current snapshots. A later command reads fresh snapshots and can produce different results.
+
+If category availability or allocation resources change before a later saved month, transaction execution is blocked.
+This covers category-only reassignment, creation, updates, and deletion, including recurring scopes.
+The dry run reports executionSupported:false and summary.downstreamCarryover with existing residuals and affected months.
+The CLI does not predict or write later-period amounts. Future period materialization remains unverified.
+Preserve unexplained discontinuities while investigating their cause. Metadata-only and obligation-only changes retain their usual guards.
 
 Use transactions create with frequency to create an expense, income, or card-refund series.
 Supply optional repeatCount and nonWorkingDayPolicy. repeatCount includes the initial payment; null, zero, or omitted means unlimited.
