@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Session } from "../auth/session.ts";
 import { BudgetSchema } from "../budget/model.ts";
 import { DataSchema, DocumentRoot, newId, WireDocumentSchema, decode } from "./encoding.ts";
-import type { CommitOptions, CommitResult, Data, FirestoreDocument, Write } from "./encoding.ts";
+import type { CommitOptions, CommitResult, FirestoreDocument, Write } from "./encoding.ts";
 import { FirestoreError } from "./error.ts";
 
 export { FirestoreError } from "./error.ts";
@@ -29,7 +29,7 @@ export class BeyondClient {
       session.selectedBudgetId ??
       (session.budgetIds.length === 1 ? session.budgetIds[0] : undefined);
 
-    if (!budgetId) {
+    if (budgetId === undefined || budgetId === "") {
       throw new Error("Choose --budget <id>, or import a session with a selected budget");
     }
 
@@ -53,7 +53,7 @@ export class BeyondClient {
 
     const headers = new Headers({ Authorization: `Bearer ${this.session.idToken}` });
 
-    if (this.session.appCheckToken) {
+    if (this.session.appCheckToken !== undefined && this.session.appCheckToken !== "") {
       headers.set("X-Firebase-AppCheck", this.session.appCheckToken);
     }
 
@@ -75,9 +75,9 @@ export class BeyondClient {
 
       const error = candidates
         .map((candidate) => DataSchema.safeParse(candidate))
-        .find((candidate) => candidate.success && candidate.data.error);
+        .find((candidate) => candidate.success && Boolean(candidate.data.error));
 
-      const details = DataSchema.safeParse(error?.success ? error.data.error : {});
+      const details = DataSchema.safeParse(error?.success === true ? error.data.error : {});
 
       const status = z.string().safeParse(details.success ? details.data.status : undefined);
       const message = z.string().safeParse(details.success ? details.data.message : undefined);
@@ -88,7 +88,7 @@ export class BeyondClient {
     return schema.parse(result);
   }
 
-  async document(path: string): Promise<FirestoreDocument<Data>>;
+  async document(path: string): Promise<FirestoreDocument>;
   async document<T>(path: string, schema: z.ZodType<T>): Promise<FirestoreDocument<T>>;
   async document(
     path: string,
@@ -117,7 +117,7 @@ export class BeyondClient {
     return stash.id;
   }
 
-  async stash(type: string): Promise<FirestoreDocument<Data>>;
+  async stash(type: string): Promise<FirestoreDocument>;
   async stash<T>(type: string, schema: z.ZodType<T>): Promise<FirestoreDocument<T>>;
   async stash(type: string, schema: z.ZodType = DataSchema): Promise<FirestoreDocument<unknown>> {
     return await this.document(`${this.budgetPath}/stashes/${this.stashId(type)}`, schema);
@@ -146,7 +146,7 @@ export class BeyondClient {
     for (const write of writes) {
       const path = write.update?.name ?? write.delete;
 
-      if (!path?.startsWith(`${this.budgetPath}/`)) {
+      if (path?.startsWith(`${this.budgetPath}/`) !== true) {
         throw new Error(
           "The write is outside the selected budget. Choose a record in the selected budget"
         );
@@ -172,7 +172,7 @@ export class BeyondClient {
       ],
     };
 
-    if (options.dryRun) {
+    if (options.dryRun === true) {
       return { body, dryRun: true, requestId };
     }
 
@@ -190,7 +190,7 @@ export class BeyondClient {
       // Marker existence does not bind this request ID to an operation or payload.
       const landed = await this.readMarker(marker);
 
-      if (landed) {
+      if (landed !== undefined && landed !== "") {
         return { alreadyCommitted: true, commitTime: landed, committed: true, requestId };
       }
 

@@ -1,4 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
+import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { release, tmpdir } from "node:os";
@@ -67,19 +68,24 @@ test("missing Chrome is installed before the saved profile is launched", async (
   const install = spyOn(browsers, "install").mockImplementation(installFixture);
 
   const launch = spyOn(puppeteer, "launch").mockImplementation((options) => {
-    if (!options?.executablePath || !existsSync(options.executablePath)) {
+    if (
+      options?.executablePath === undefined ||
+      options.executablePath === "" ||
+      !existsSync(options.executablePath)
+    ) {
       throw new Error("Missing browser executable");
     }
 
     throw launched;
   });
 
-  const progress = mock();
+  const progress = mock<(message: string) => void>();
 
   try {
-    await expect(
-      launchBrowser(nodePath.join(directory, "profile"), launchOptions, progress)
-    ).rejects.toBe(launched);
+    await assert.rejects(
+      launchBrowser(nodePath.join(directory, "profile"), launchOptions, progress),
+      (error) => error === launched
+    );
     expect(install).toHaveBeenCalledWith(
       expect.objectContaining({
         browser: "chrome",
@@ -87,13 +93,14 @@ test("missing Chrome is installed before the saved profile is launched", async (
         cacheDir: nodePath.join(directory, "browsers"),
       })
     );
-    await expect(
-      launchBrowser(nodePath.join(directory, "profile"), launchOptions, progress)
-    ).rejects.toBe(launched);
+    await assert.rejects(
+      launchBrowser(nodePath.join(directory, "profile"), launchOptions, progress),
+      (error) => error === launched
+    );
     expect(install).toHaveBeenCalledTimes(1);
     expect(progress).toHaveBeenCalledTimes(1);
 
-    await expect(login({ progress })).rejects.toThrow("Browser sign-in failed");
+    await assert.rejects(login({ progress }), /Browser sign-in failed/u);
     expect(launch).toHaveBeenCalledTimes(3);
   } finally {
     discover.mockRestore();
@@ -113,7 +120,10 @@ test("installed Chrome is reused without downloading a browser", async () => {
   const launch = spyOn(puppeteer, "launch").mockRejectedValue(launched);
 
   try {
-    await expect(launchBrowser("/saved/profile", launchOptions)).rejects.toBe(launched);
+    await assert.rejects(
+      launchBrowser("/saved/profile", launchOptions),
+      (error) => error === launched
+    );
     expect(launch).toHaveBeenCalledWith({
       ...launchOptions,
       defaultViewport: null,
@@ -153,8 +163,9 @@ test("browser download errors give a safe retry instruction and release the logi
   const launch = spyOn(puppeteer, "launch");
 
   try {
-    await expect(login({ fresh: true })).rejects.toThrow(
-      "The browser download failed. Check your internet connection"
+    await assert.rejects(
+      login({ fresh: true }),
+      /The browser download failed\. Check your internet connection/u
     );
     expect(existsSync(nodePath.join(directory, "browser-profile.lock"))).toBe(false);
     expect(launch).not.toHaveBeenCalled();
@@ -190,7 +201,10 @@ test.skipIf(process.platform !== "linux")(
     const connect = spyOn(puppeteer, "connect").mockRejectedValue(launched);
 
     try {
-      await expect(connectBrowser("/mnt/c/Chrome/chrome.exe")).rejects.toBe(launched);
+      await assert.rejects(
+        connectBrowser("/mnt/c/Chrome/chrome.exe"),
+        (error) => error === launched
+      );
       expect(connect).toHaveBeenCalledWith({
         browserWSEndpoint: "ws://127.0.0.1:9222/devtools/browser/fixture-browser",
         defaultViewport: null,
@@ -219,11 +233,11 @@ test.skipIf(!release().toLowerCase().includes("microsoft"))(
 
     try {
       const profile = nodePath.join(directory, "profile");
-      await expect(launchBrowser(profile, launchOptions)).rejects.toBe(launched);
+      await assert.rejects(launchBrowser(profile, launchOptions), (error) => error === launched);
       expect(install).toHaveBeenCalledTimes(1);
+      expect(launch.mock.calls[0]?.[0]?.executablePath).toContain("chrome-linux");
       expect(launch).toHaveBeenCalledWith(
         expect.objectContaining({
-          executablePath: expect.stringContaining("chrome-linux"),
           userDataDir: profile,
         })
       );
@@ -242,8 +256,9 @@ test.skipIf(!release().toLowerCase().includes("microsoft"))(
     const launch = spyOn(puppeteer, "launch").mockRejectedValue(launched);
 
     try {
-      await expect(launchBrowser("/mnt/c/bebu-fixture/profile", launchOptions)).rejects.toBe(
-        launched
+      await assert.rejects(
+        launchBrowser("/mnt/c/bebu-fixture/profile", launchOptions),
+        (error) => error === launched
       );
       expect(launch).toHaveBeenCalledWith({
         ...launchOptions,

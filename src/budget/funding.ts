@@ -6,7 +6,7 @@ import type { Balance, Category } from "./model.ts";
 import { ObjectIdSchema } from "./transaction-model.ts";
 
 export const fundingAmounts = (balance: Balance = {}) => {
-  const money = z.number().int().safe();
+  const money = z.number().int();
 
   const amounts = {
     allocatedAmount: money.parse(balance.allocatedAmount ?? 0),
@@ -50,7 +50,7 @@ export const categoryFunding = async (
   const budget = await client.discover();
   const periodId = budget.data.availablePeriods[yearMonth]?.id;
 
-  if (!periodId) {
+  if (periodId === undefined || periodId === "") {
     throw new Error(`Budget period ${yearMonth} does not exist. Select an existing month`);
   }
 

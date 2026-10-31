@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
@@ -18,8 +19,8 @@ test("logout clears owned browser credentials while preserving other configurati
     await writeFile(nodePath.join(directory, "session.json"), "{}");
     await writeFile(nodePath.join(directory, "preferences.json"), "preserve");
     await logout();
-    await expect(stat(nodePath.join(directory, "session.json"))).rejects.toThrow();
-    await expect(stat(profilePath())).rejects.toThrow();
+    await assert.rejects(stat(nodePath.join(directory, "session.json")));
+    await assert.rejects(stat(profilePath()));
     expect(await readFile(nodePath.join(directory, "preferences.json"), "utf-8")).toBe("preserve");
   } finally {
     if (previous === undefined) {
@@ -40,10 +41,11 @@ test("login and logout refuse a browser profile that bebu does not own", async (
   try {
     await mkdir(profilePath());
     await writeFile(nodePath.join(profilePath(), "existing-data"), "preserve");
-    await expect(withBrowserProfile(() => Promise.resolve("unexpected"))).rejects.toThrow(
-      "does not own"
+    await assert.rejects(
+      withBrowserProfile(async () => await Promise.resolve("unexpected")),
+      /does not own/u
     );
-    await expect(logout()).rejects.toThrow("does not own");
+    await assert.rejects(logout(), /does not own/u);
     expect(await readFile(nodePath.join(profilePath(), "existing-data"), "utf-8")).toBe("preserve");
   } finally {
     if (previous === undefined) {
@@ -63,12 +65,17 @@ test("a second browser operation cannot race an active login or erase its profil
 
   try {
     await withBrowserProfile(async () => {
-      await expect(logout()).rejects.toThrow("Another browser login");
+      await assert.rejects(logout(), /Another browser login/u);
     });
-    await expect(
-      withBrowserProfile(() => Promise.reject(new Error("fixture failure")))
-    ).rejects.toThrow("fixture failure");
-    expect(await withBrowserProfile(() => Promise.resolve("released"))).toBe("released");
+    await assert.rejects(
+      withBrowserProfile(() => {
+        throw new Error("fixture failure");
+      }),
+      /fixture failure/u
+    );
+    expect(await withBrowserProfile(async () => await Promise.resolve("released"))).toBe(
+      "released"
+    );
   } finally {
     if (previous === undefined) {
       delete process.env.BEBU_SESSION_FILE;

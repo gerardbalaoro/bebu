@@ -108,7 +108,7 @@ export const allocationHistory = async (
   const periodId =
     yearMonth === undefined ? undefined : budget.data.availablePeriods[yearMonth]?.id;
 
-  if (yearMonth !== undefined && !periodId) {
+  if (yearMonth !== undefined && (periodId === undefined || periodId === "")) {
     throw new Error(`Budget period ${yearMonth} does not exist. Select an existing month`);
   }
 

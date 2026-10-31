@@ -24,7 +24,7 @@ const waitForLoginTabToClose = async (context: BrowserContext): Promise<void> =>
 };
 
 const authTest = (name: string, body: () => Promise<void>, timeout = 15_000): void => {
-  test(name, { timeout }, body);
+  void test(name, { timeout }, body);
 };
 
 const signedInPage = `<!doctype html><script>
@@ -39,16 +39,16 @@ const signedInPage = `<!doctype html><script>
 </script>`;
 
 const runtime = (html: string, contexts: BrowserContext[]): LoginRuntime => ({
-  fetcher: (input, init) => {
+  fetcher: async (input, init) => {
     assert.equal(
-      String(input),
+      new Request(input, init).url,
       "https://firestore.googleapis.com/v1/projects/beyond-budget/databases/(default)/documents/budgets/fixtureBudget"
     );
     assert.equal(init?.method, "GET");
     assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer fixture-access-token");
     assert.equal(new Headers(init?.headers).get("X-Firebase-AppCheck"), "fixture-app-check");
 
-    return Promise.resolve(
+    return await Promise.resolve(
       Response.json({
         fields: {
           availablePeriods: { mapValue: { fields: {} } },
@@ -99,9 +99,9 @@ authTest(
       const [context] = browser.contexts();
       assert.ok(context);
       let html = "<!doctype html>Sign in";
-      await context.route("**/*", (route) =>
-        route.fulfill({ body: html, contentType: "text/html" })
-      );
+      await context.route("**/*", async (route) => {
+        await route.fulfill({ body: html, contentType: "text/html" });
+      });
       const [userTab] = context.pages();
       assert.ok(userTab);
       const { fetcher } = runtime(signedInPage, []);
@@ -125,9 +125,9 @@ authTest(
 
       const controller = new AbortController();
       const cancelledTab = waitForLoginTabToClose(context);
-      context.once("page", () =>
-        controller.abort(new DOMException("Cancelled fixture connection", "AbortError"))
-      );
+      context.once("page", () => {
+        controller.abort(new DOMException("Cancelled fixture connection", "AbortError"));
+      });
       await assert.rejects(
         login({ signal: controller.signal, timeoutSeconds: 10 }, { connect, fetcher }),
         { message: "Cancelled fixture connection", name: "AbortError" }
@@ -161,10 +161,11 @@ authTest(
       assert.equal(userTab.isClosed(), false);
       assert.equal(context.pages().length, 1);
       assert.equal(browser.isConnected(), true);
-      assert.ok(await stat(nodePath.join(userDataDir, "DevToolsActivePort")));
+      const portFile = await stat(nodePath.join(userDataDir, "DevToolsActivePort"));
+      assert.equal(portFile.isFile(), true);
       await assert.rejects(stat(nodePath.join(directory, "bebu", "session.json")));
     } finally {
-      if (browser?.isConnected()) {
+      if (browser?.isConnected() === true) {
         const channel = await browser.newBrowserCDPSession();
         await channel.send("Browser.close").catch(() => {
           // The browser can close before the protocol response arrives.
@@ -226,7 +227,12 @@ authTest(
       const loadSessionResult = await loadSession();
       assert.equal(loadSessionResult.idToken, "fixture-access-token");
       assert.equal(contexts[0]?.pages()?.length, 0);
-      assert.ok(await stat(nodePath.join(directory, "browser-profile", ".bebu-profile")));
+
+      const profileMarker = await stat(
+        nodePath.join(directory, "browser-profile", ".bebu-profile")
+      );
+
+      assert.equal(profileMarker.isFile(), true);
     } finally {
       for (const context of contexts) {
         await context.close();
@@ -355,7 +361,9 @@ authTest("browser errors containing private page state never escape to callers",
       await login(
         {},
         {
-          launch: () => Promise.reject(new Error("browser typed fixture-password")),
+          launch: () => {
+            throw new Error("browser typed fixture-password");
+          },
         }
       );
     } catch (error) {
@@ -465,8 +473,10 @@ authTest(
         name: "AbortError",
       });
 
-      if (contexts[0]?.pages().length) {
-        await contexts[0].waitForEvent("close", { timeout: 3000 });
+      const [context] = contexts;
+
+      if (context !== undefined && context.pages().length > 0) {
+        await context.waitForEvent("close", { timeout: 3000 });
       }
 
       assert.equal(contexts[0]?.pages()?.length, 0);

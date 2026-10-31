@@ -10,7 +10,7 @@ export interface CategoryTargetsOptions {
   categoryId?: string;
 }
 
-const money = z.number().int().safe();
+const money = z.number().int();
 
 const balanceSchema = z.looseObject({
   allocatedAmount: money.optional(),
@@ -76,6 +76,16 @@ interface CategoryTarget {
   month?: ReturnType<typeof monthAvailability>;
 }
 
+const validateFilters = ({ yearMonth, categoryId }: CategoryTargetsOptions) => {
+  if (yearMonth !== undefined && !/^\d{4}-(?:0[1-9]|1[0-2])$/u.test(yearMonth)) {
+    throw new Error("Use a month in YYYY-MM format");
+  }
+
+  if (categoryId !== undefined) {
+    ObjectIdSchema.parse(categoryId);
+  }
+};
+
 // Targets use ascending UTF-16 category-map-key order. Raw settings do not imply a progress formula.
 // Availability is reported only when all four operands are present; sparse balances remain explicit.
 export const categoryTargets = async (
@@ -84,20 +94,14 @@ export const categoryTargets = async (
 ) => {
   const { yearMonth, categoryId } = options;
 
-  if (yearMonth !== undefined && !/^\d{4}-(?:0[1-9]|1[0-2])$/u.test(yearMonth)) {
-    throw new Error("Use a month in YYYY-MM format");
-  }
-
-  if (categoryId !== undefined) {
-    ObjectIdSchema.parse(categoryId);
-  }
+  validateFilters(options);
 
   const budget = await client.discover();
 
   const periodId =
     yearMonth === undefined ? undefined : budget.data.availablePeriods[yearMonth]?.id;
 
-  if (yearMonth !== undefined && !periodId) {
+  if (yearMonth !== undefined && (periodId === undefined || periodId === "")) {
     throw new Error(`Budget period ${yearMonth} does not exist. Select an existing month`);
   }
 

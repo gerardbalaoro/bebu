@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import assert from "node:assert/strict";
 
 import type { Session } from "../auth/session.ts";
 import { BeyondClient } from "../firestore/client.ts";
@@ -32,8 +33,8 @@ const fixture = (history: DecodedValue = {}) => {
   const failures = new Map<string, number>();
 
   const client = new BeyondClient(session, {
-    fetcher: (input, init) => {
-      const path = new URL(String(input)).pathname.slice(4);
+    fetcher: async (input, init) => {
+      const path = new URL(new Request(input).url).pathname.slice(4);
       requests.push(path);
 
       if (init?.method !== "GET") {
@@ -43,7 +44,7 @@ const fixture = (history: DecodedValue = {}) => {
       const data = documents.get(path);
       const status = failures.get(path) ?? (data ? 200 : 404);
 
-      return Promise.resolve(
+      return await Promise.resolve(
         status === 200
           ? Response.json({ fields: encodeFields(data ?? {}), name: path, updateTime: timestamp })
           : Response.json(
@@ -169,8 +170,9 @@ test.each([403, 500])(
   async (status) => {
     const { client, failures } = fixture({ row: { id: "" } });
     failures.set(`${budgetPath}/transactions/row`, status);
-    await expect(allocationHistory(client, { includeTransactions: true })).rejects.toThrow(
-      `Firestore ${status}`
+    await assert.rejects(
+      allocationHistory(client, { includeTransactions: true }),
+      new RegExp(RegExp.escape(`Firestore ${status}`), "u")
     );
   }
 );
@@ -182,17 +184,15 @@ test("absent history is empty but malformed history and malformed entries fail",
   expect(result.entries).toEqual([]);
   await Promise.all(
     [null, [], "invalid", { row: null }].map(async (malformed) => {
-      await expect(allocationHistory(fixture(malformed).client)).rejects.toThrow();
+      await assert.rejects(allocationHistory(fixture(malformed).client));
     })
   );
 });
 
 test("invalid filters fail before reads and missing months never fall back to all history", async () => {
   const { client, requests } = fixture();
-  await expect(allocationHistory(client, { yearMonth: "2026-13" })).rejects.toThrow();
-  await expect(allocationHistory(client, { categoryId: "../food" })).rejects.toThrow();
+  await assert.rejects(allocationHistory(client, { yearMonth: "2026-13" }));
+  await assert.rejects(allocationHistory(client, { categoryId: "../food" }));
   expect(requests).toEqual([]);
-  await expect(allocationHistory(client, { yearMonth: "2027-01" })).rejects.toThrow(
-    "does not exist"
-  );
+  await assert.rejects(allocationHistory(client, { yearMonth: "2027-01" }), /does not exist/u);
 });

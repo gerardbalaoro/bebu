@@ -144,13 +144,13 @@ export const decode = (value: unknown): DecodedValue => {
     return wire.referenceValue;
   }
 
-  if (wire.arrayValue) {
+  if ("arrayValue" in wire) {
     const array = z.object({ values: z.array(z.unknown()).default([]) }).parse(wire.arrayValue);
 
     return array.values.map(decode);
   }
 
-  if (wire.mapValue) {
+  if ("mapValue" in wire) {
     const map = z.object({ fields: DataSchema.default({}) }).parse(wire.mapValue);
 
     return Object.fromEntries(
@@ -216,7 +216,7 @@ export const patchDocument = (
   for (const { path, value } of changes) {
     const leaf = path.at(-1);
 
-    if (!leaf) {
+    if (leaf === undefined || leaf === "") {
       throw new Error("A patch field must have a path");
     }
 

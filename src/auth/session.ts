@@ -19,7 +19,7 @@ export const SessionSchema = z.object({
   budgetIds: z.array(z.string()),
   displayName: z.string().optional(),
   email: z.string().optional(),
-  expiresAt: z.number().finite(),
+  expiresAt: z.number(),
   idToken: z.string().min(1),
   importedAt: z.string(),
   projectId: z.literal("beyond-budget"),
@@ -67,19 +67,43 @@ const readBrowserSnapshot = async (): Promise<BrowserSnapshot> => {
 
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(name);
-      request.addEventListener("success", () => resolve(request.result), { once: true });
-      request.addEventListener("error", () => reject(new Error("Cannot open session database")), {
-        once: true,
-      });
+      request.addEventListener(
+        "success",
+        () => {
+          resolve(request.result);
+        },
+        { once: true }
+      );
+      request.addEventListener(
+        "error",
+        () => {
+          reject(new Error("Cannot open session database"));
+        },
+        {
+          once: true,
+        }
+      );
     });
 
     try {
       return await new Promise<unknown[]>((resolve, reject) => {
         const request = database.transaction(store, "readonly").objectStore(store).getAll();
-        request.addEventListener("success", () => resolve(request.result), { once: true });
-        request.addEventListener("error", () => reject(new Error("Cannot read session database")), {
-          once: true,
-        });
+        request.addEventListener(
+          "success",
+          () => {
+            resolve(request.result);
+          },
+          { once: true }
+        );
+        request.addEventListener(
+          "error",
+          () => {
+            reject(new Error("Cannot read session database"));
+          },
+          {
+            once: true,
+          }
+        );
       });
     } finally {
       database.close();
@@ -100,7 +124,7 @@ const sessionFromSnapshot = (snapshot: BrowserSnapshot) => {
     let current = value;
 
     for (const key of path) {
-      if (!current || typeof current !== "object" || Array.isArray(current)) {
+      if (current === null || typeof current !== "object" || Array.isArray(current)) {
         return undefined;
       }
 
@@ -114,7 +138,7 @@ const sessionFromSnapshot = (snapshot: BrowserSnapshot) => {
     .map((row) => get(row, "value"))
     .find((value) => typeof get(value, "stsTokenManager", "accessToken") === "string");
 
-  if (!auth) {
+  if (auth === undefined) {
     throw new Error("The browser has no Firebase session. Sign in to Beyond Budget");
   }
 
@@ -142,9 +166,9 @@ const sessionFromSnapshot = (snapshot: BrowserSnapshot) => {
     }
 
     // Serialized browser code cannot capture module constants.
-    const budgetId = name.match(/\/documents\/budgets\/(?<budget>[^/]+)/u)?.groups?.budget;
+    const budgetId = /\/documents\/budgets\/(?<budget>[^/]+)/u.exec(name)?.groups?.budget;
 
-    if (budgetId) {
+    if (budgetId !== undefined && budgetId !== "") {
       budgetIds.add(budgetId);
     }
 
@@ -152,7 +176,8 @@ const sessionFromSnapshot = (snapshot: BrowserSnapshot) => {
     const id = get(row, "documentId");
 
     if (
-      budgetId &&
+      budgetId !== undefined &&
+      budgetId !== "" &&
       name.includes("/stashes/") &&
       typeof type === "string" &&
       typeof id === "string"
@@ -249,7 +274,7 @@ export const readAgentBrowser = async (name: string): Promise<Session> => {
     child.on("close", (code) => {
       clearTimeout(timer);
 
-      if (code) {
+      if (code !== null && code !== 0) {
         reject(new Error("Select the signed-in Beyond Budget tab in that agent-browser session"));
 
         return;
@@ -329,7 +354,7 @@ export const prepareSealedImport = async (output?: string) => {
   await writeFile(keyPath, privateKey, { mode: 0o600 });
   const expression = `(async()=>{const session=await ${browserExpression()};const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b)));const pub=await crypto.subtle.importKey('spki',Uint8Array.from(atob(${JSON.stringify(publicKey.toString("base64"))}),c=>c.charCodeAt(0)),{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);const key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']);const iv=crypto.getRandomValues(new Uint8Array(12));const data=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(JSON.stringify(session)));const wrapped=await crypto.subtle.encrypt({name:'RSA-OAEP'},pub,await crypto.subtle.exportKey('raw',key));return {encryptedSession:{version:1,key:b64(wrapped),iv:b64(iv),data:b64(data)}}})()`;
 
-  if (!output) {
+  if (output === undefined || output === "") {
     return { browserExpression: expression };
   }
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { ObjectIdSchema } from "./transaction-model.ts";
 
-const amountSchema = z.number().int().safe();
+const amountSchema = z.number().int();
 
 const demandSchema = z.strictObject({
   categoryId: ObjectIdSchema,

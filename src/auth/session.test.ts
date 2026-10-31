@@ -1,5 +1,6 @@
-/* oxlint-disable promise/avoid-new -- The IndexedDB fixture completes through event callbacks. */
 import { expect, test } from "bun:test";
+/* oxlint-disable promise/avoid-new -- The IndexedDB fixture completes through event callbacks. */
+import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
@@ -106,8 +107,20 @@ const seedDatabase = async (
       },
       { once: true }
     );
-    request.addEventListener("success", () => resolve(request.result), { once: true });
-    request.addEventListener("error", () => reject(request.error), { once: true });
+    request.addEventListener(
+      "success",
+      () => {
+        resolve(request.result);
+      },
+      { once: true }
+    );
+    request.addEventListener(
+      "error",
+      () => {
+        reject(request.error ?? new Error("Fixture database could not open"));
+      },
+      { once: true }
+    );
   });
 
   database.close();
@@ -132,7 +145,7 @@ test("the serialized browser handoff runs without module closures and decrypts o
     );
     const prepared = await prepareSealedImport();
 
-    if (!prepared.browserExpression) {
+    if (prepared.browserExpression === undefined || prepared.browserExpression === "") {
       throw new Error("Missing handoff expression");
     }
 
@@ -160,7 +173,7 @@ test("the serialized browser handoff runs without module closures and decrypts o
     expect(await readFile(nodePath.join(directory, "session.json"), "utf-8")).not.toContain(
       "not-exported"
     );
-    await expect(stat(nodePath.join(directory, "session.json.handoff-key"))).rejects.toThrow();
+    await assert.rejects(stat(nodePath.join(directory, "session.json.handoff-key")));
   } finally {
     if (previousPath === undefined) {
       delete process.env.BEBU_SESSION_FILE;

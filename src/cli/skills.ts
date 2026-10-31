@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import type { CustomPromisify } from "node:util";
 
 import { defineCommand } from "@crustjs/core";
 import type { AnyCrust } from "@crustjs/core";
@@ -11,7 +12,8 @@ import { z } from "zod";
 
 import metadata from "../../package.json" with { type: "json" };
 
-const executeFile = promisify(execFile);
+const ExecFile: CustomPromisify<typeof execFile.__promisify__> = execFile;
+const executeFile = promisify(ExecFile);
 export const packagedSkills = fileURLToPath(new URL("../../skills", import.meta.url));
 const generatedSyntaxSection = /## Command Documentation Authority\n\n.*?(?=\n---)/su;
 
@@ -226,9 +228,9 @@ export const createSkillsCommand = (getApp: () => AnyCrust) => {
                   name: "out",
                   type: "string",
                 })
-                .action(async ({ flags, stdout }) =>
-                  stdout(JSON.stringify(await generate(flags.out)))
-                )
+                .action(async ({ flags, stdout }) => {
+                  stdout(JSON.stringify(await generate(flags.out)));
+                })
           )
         )
         .add(

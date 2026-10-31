@@ -20,7 +20,7 @@ test("source generation produces a complete installable skill without a build di
     expect(generated.files.length).toBeGreaterThan(0);
 
     const generatedFiles = await Promise.all(
-      generated.files.map((file) => stat(nodePath.join(directory, "skills", file)))
+      generated.files.map(async (file) => await stat(nodePath.join(directory, "skills", file)))
     );
 
     for (const file of generatedFiles) {

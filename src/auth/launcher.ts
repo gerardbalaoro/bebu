@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import nodePath from "node:path";
 import { promisify } from "node:util";
+import type { CustomPromisify } from "node:util";
 
 import { Browser as BrowserProduct, computeExecutablePath, install } from "@puppeteer/browsers";
 import * as puppeteer from "puppeteer-core";
@@ -12,7 +13,8 @@ import { PUPPETEER_REVISIONS } from "puppeteer-core/internal/revisions.js";
 import { dataHome } from "../state.ts";
 import { BrowserSetupError } from "./browser.ts";
 
-const run = promisify(execFile);
+const ExecFile: CustomPromisify<typeof execFile.__promisify__> = execFile;
+const run = promisify(ExecFile);
 
 const isWindowsBrowser = (executablePath: string): boolean =>
   process.platform === "linux" && executablePath.toLowerCase().endsWith(".exe");
@@ -71,11 +73,12 @@ export const connectBrowser = async (executablePath: string): Promise<Browser> =
     const [port, endpoint] = portFile.trim().split(/\r?\n/u);
 
     if (
-      !port ||
+      port === undefined ||
+      port === "" ||
       !/^\d+$/u.test(port) ||
       Number(port) < 1 ||
       Number(port) > 65_535 ||
-      !endpoint?.startsWith("/devtools/browser/")
+      endpoint?.startsWith("/devtools/browser/") !== true
     ) {
       throw new BrowserSetupError("Chrome has no valid debugging endpoint");
     }
@@ -96,16 +99,22 @@ export const launchBrowser = async (
   options: { headless: boolean; timeout: number },
   progress?: (message: string) => void
 ): Promise<Browser> => {
-  let executablePath = process.env.BEBU_BROWSER || (await systemBrowserPath());
+  const configuredBrowser = process.env.BEBU_BROWSER;
+
+  let executablePath =
+    configuredBrowser !== undefined && configuredBrowser !== ""
+      ? configuredBrowser
+      : await systemBrowserPath();
+
   let userDataDir = profile;
 
-  if (executablePath && isWindowsBrowser(executablePath)) {
+  if (executablePath !== undefined && executablePath !== "" && isWindowsBrowser(executablePath)) {
     const { stdout } = await run("wslpath", ["-w", profile]);
     const windowsProfile = stdout.trim();
 
     // Windows Chrome cannot use IndexedDB in a profile on the WSL Linux filesystem.
     if (windowsProfile.startsWith("\\\\")) {
-      if (process.env.BEBU_BROWSER) {
+      if (configuredBrowser !== undefined && configuredBrowser !== "") {
         throw new BrowserSetupError(
           "Windows Chrome needs a profile on a Windows drive. Set BEBU_HOME to a folder on a mounted Windows drive, or set BEBU_BROWSER to a Linux browser"
         );

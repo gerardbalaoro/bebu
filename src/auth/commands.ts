@@ -67,7 +67,7 @@ export const authCommand = defineCommand(
                 const session = await login({ ...options, progress: stderr });
 
                 stdout(
-                  `${signedInMessage(session)}${session.selectedBudgetName ? `\nSelected budget: ${session.selectedBudgetName}` : ""}\n\nRead your accounts:\n  bebu accounts list`
+                  `${signedInMessage(session)}${session.selectedBudgetName !== undefined && session.selectedBudgetName !== "" ? `\nSelected budget: ${session.selectedBudgetName}` : ""}\n\nRead your accounts:\n  bebu accounts list`
                 );
               })
         )
@@ -76,7 +76,10 @@ export const authCommand = defineCommand(
         defineCommand(
           "status",
           { aliases: ["whoami"], description: "Show saved connection state as JSON" },
-          (leaf) => leaf.action(async ({ stdout }) => print(stdout, await authStatus()))
+          (leaf) =>
+            leaf.action(async ({ stdout }) => {
+              print(stdout, await authStatus());
+            })
         )
       )
       .add(
@@ -157,17 +160,18 @@ export const sessionCommand = defineCommand(
                   );
                 }
 
-                if (flags.sealed) {
+                if (flags.sealed !== undefined && flags.sealed !== "") {
                   print(stdout, await importSealed(flags.sealed), flags.compact);
 
                   return;
                 }
 
-                const session = flags["agent-browser"]
-                  ? await readAgentBrowser(flags["agent-browser"])
-                  : parsePlaywrightState(
-                      await payload(flags["playwright-state"] ?? "", PlaywrightStateSchema)
-                    );
+                const session =
+                  flags["agent-browser"] !== undefined && flags["agent-browser"] !== ""
+                    ? await readAgentBrowser(flags["agent-browser"])
+                    : parsePlaywrightState(
+                        await payload(flags["playwright-state"] ?? "", PlaywrightStateSchema)
+                      );
 
                 print(stdout, await saveSession(session), flags.compact);
               })
@@ -183,9 +187,10 @@ export const sessionCommand = defineCommand(
               print(
                 stdout,
                 {
-                  appCheckExpiresAt: session.appCheckExpiresAt
-                    ? new Date(session.appCheckExpiresAt).toISOString()
-                    : null,
+                  appCheckExpiresAt:
+                    session.appCheckExpiresAt !== undefined && session.appCheckExpiresAt !== 0
+                      ? new Date(session.appCheckExpiresAt).toISOString()
+                      : null,
                   authenticated: true,
                   budgets: session.budgetIds,
                   expiresAt: new Date(session.expiresAt).toISOString(),

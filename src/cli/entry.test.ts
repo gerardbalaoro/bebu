@@ -45,8 +45,8 @@ test("the linked Node command reads stdin payloads and refuses direct balance wr
     stdout: "pipe",
   });
 
-  child.stdin.write('{"balanceAmount":100}');
-  child.stdin.end();
+  await child.stdin.write('{"balanceAmount":100}');
+  await child.stdin.end();
 
   const [output, errors, code] = await Promise.all([
     new Response(child.stdout).text(),
@@ -68,9 +68,11 @@ test("an installed copy inside node_modules runs its TypeScript source from anot
   try {
     await mkdir(packageRoot, { recursive: true });
     await Promise.all(
-      ["bin.mjs", "package.json", "tsconfig.json", "src"].map((name) =>
-        cp(nodePath.join(checkout, name), nodePath.join(packageRoot, name), { recursive: true })
-      )
+      ["bin.mjs", "package.json", "tsconfig.json", "src"].map(async (name) => {
+        await cp(nodePath.join(checkout, name), nodePath.join(packageRoot, name), {
+          recursive: true,
+        });
+      })
     );
     await symlink(
       nodePath.join(checkout, "node_modules"),

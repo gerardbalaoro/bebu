@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
+import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
@@ -83,8 +84,8 @@ const fixture = () => {
 
   const methods: string[] = [];
 
-  const fetcher: Fetcher = (input, init) => {
-    const path = new URL(String(input)).pathname.slice(4);
+  const fetcher: Fetcher = async (input, init) => {
+    const path = new URL(new Request(input).url).pathname.slice(4);
     methods.push(init?.method ?? "GET");
 
     if (init?.method !== "GET") {
@@ -93,7 +94,7 @@ const fixture = () => {
 
     const data = documents.get(path);
 
-    return Promise.resolve(
+    return await Promise.resolve(
       data
         ? Response.json({ fields: encodeFields(data), name: path, updateTime: stamp })
         : Response.json({ error: { status: "NOT_FOUND" } }, { status: 404 })
@@ -266,7 +267,7 @@ test("unsupported formulas and uncertain input cannot produce an incomplete allo
     changes.map(async (change) => {
       const data = fixture();
       change(data);
-      await expect(previewTargetAllocation(data.client, "2026-10", now)).rejects.toThrow();
+      await assert.rejects(previewTargetAllocation(data.client, "2026-10", now));
       expect(data.methods.every((method) => method === "GET")).toBe(true);
     })
   );
@@ -297,7 +298,7 @@ test("savings preview preserves stored timestamps and uses the explicit calculat
     requestedAmount: 700,
   });
   expect(plan).toMatchObject({ calculationTimezone: "UTC", executionSupported: false });
-  await expect(previewTargetAllocation(client, "2026-10", now)).rejects.toThrow();
+  await assert.rejects(previewTargetAllocation(client, "2026-10", now));
   expect(methods.every((m) => m === "GET")).toBe(true);
 });
 
@@ -399,8 +400,9 @@ test.each([
     period.allocationAmount = 0;
     period.allocationCarriedOverAmount = 0;
 
-    await expect(previewSmartAllocation(client, "2026-10", now)).rejects.toThrow(
-      "Smart preview does not support nonpositive targets"
+    await assert.rejects(
+      previewSmartAllocation(client, "2026-10", now),
+      /Smart preview does not support nonpositive targets/u
     );
     expect(methods.every((method) => method === "GET")).toBe(true);
   }
@@ -441,7 +443,7 @@ test("smart preview refuses unknown upcoming inputs and unsupported smart eligib
     changes.map(async (change) => {
       const data = smartFixture();
       change(data);
-      await expect(previewSmartAllocation(data.client, "2026-10", now)).rejects.toThrow();
+      await assert.rejects(previewSmartAllocation(data.client, "2026-10", now));
       expect(data.methods.every((m) => m === "GET")).toBe(true);
     })
   );
@@ -498,11 +500,15 @@ test("CLI selects smart planning and passes an explicit savings timezone without
     expect(savings.exitCode).toBe(0);
     expect(JSON.parse(savings.stdout)).toMatchObject({
       calculationTimezone: "UTC",
-      categories: expect.arrayContaining([
-        expect.objectContaining({ categoryId: "later", requestedAmount: 1300 }),
-      ]),
       strategy: "targets",
     });
+
+    expect(JSON.parse(savings.stdout)).toHaveProperty(
+      "categories",
+      expect.arrayContaining([
+        expect.objectContaining({ categoryId: "later", requestedAmount: 1300 }),
+      ])
+    );
 
     const unsupported = await captureExecute(createApp(), [
       "allocations",

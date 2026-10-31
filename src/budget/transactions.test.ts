@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
+import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
@@ -188,8 +189,8 @@ const fixture = () => {
 
   const calls: { path: string; method: string; body?: string }[] = [];
 
-  const fetcher: Fetcher = (input, init) => {
-    const path = new URL(String(input)).pathname.slice(4);
+  const fetcher: Fetcher = async (input, init) => {
+    const path = new URL(new Request(input).url).pathname.slice(4);
     calls.push({
       body: z.string().safeParse(init?.body).data,
       method: init?.method ?? "GET",
@@ -197,13 +198,13 @@ const fixture = () => {
     });
 
     if (init?.method !== "GET") {
-      return Promise.reject(new Error(`Unexpected write during a dry run: ${path}`));
+      throw new Error(`Unexpected write during a dry run: ${path}`);
     }
 
     const data = documents.get(path);
 
     if (!data) {
-      return Promise.resolve(
+      return await Promise.resolve(
         Response.json(
           { error: { message: "No fixture for this document", status: "NOT_FOUND" } },
           { status: 404 }
@@ -211,7 +212,7 @@ const fixture = () => {
       );
     }
 
-    return Promise.resolve(
+    return await Promise.resolve(
       Response.json({
         createTime: timestamp,
         fields: encodeFields(data),
@@ -261,7 +262,7 @@ test("deleting native income cannot leave a linked allocation behind when extras
       differentMapKey: { id: transactionId, source: "LINKED_CATEGORY", undoneAt: null },
     },
   });
-  await expect(service.delete(transactionId)).rejects.toThrow("allocation");
+  await assert.rejects(service.delete(transactionId), /allocation/u);
   expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 
@@ -271,7 +272,7 @@ test("an allocation history map key blocks deletion even when the entry ID is em
     ...documents.get(budgetPath),
     allocationHistory: { [transactionId]: { id: "", source: "FUTURE_SOURCE", undoneAt: null } },
   });
-  await expect(service.delete(transactionId)).rejects.toThrow("allocation");
+  await assert.rejects(service.delete(transactionId), /allocation/u);
   expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 
@@ -282,8 +283,8 @@ test("possible automatic allocation blocks financial changes but permits a notes
     autoAllocateIfCapable: true,
     autoAllocateIfIncome: true,
   });
-  await expect(service.delete(transactionId)).rejects.toThrow("allocation");
-  await expect(service.update(transactionId, { cleared: false })).rejects.toThrow("allocation");
+  await assert.rejects(service.delete(transactionId), /allocation/u);
+  await assert.rejects(service.update(transactionId, { cleared: false }), /allocation/u);
 
   const writes = writesFrom(
     await service.update(transactionId, { notes: "reviewed" }, { dryRun: true })
@@ -307,9 +308,10 @@ test("conflicting account and category links cannot route card reserves to the w
       },
     },
   });
-  await expect(
-    service.create({ accountId: "card", amountMinor: 100, categoryId: "spend", dueAt: timestamp })
-  ).rejects.toThrow("link");
+  await assert.rejects(
+    service.create({ accountId: "card", amountMinor: 100, categoryId: "spend", dueAt: timestamp }),
+    /link/u
+  );
   expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 
@@ -319,12 +321,10 @@ test("clearing a refund cannot apply ordinary income rules and malformed history
     ...canonicalTransaction,
     extras: { refund: true },
   });
-  await expect(
-    service.update(transactionId, { cleared: false }, { dryRun: true })
-  ).rejects.toThrow();
+  await assert.rejects(service.update(transactionId, { cleared: false }, { dryRun: true }));
   documents.set(`${budgetPath}/transactions/${transactionId}`, canonicalTransaction);
   documents.set(budgetPath, { ...documents.get(budgetPath), allocationHistory: null });
-  await expect(service.delete(transactionId, { dryRun: true })).rejects.toThrow();
+  await assert.rejects(service.delete(transactionId, { dryRun: true }));
   expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 
@@ -371,11 +371,11 @@ test("card expenses debit the account, fund the payment category, and index the 
   });
   expect(writeAt(writes, "stashes/accountsIndex")).toMatchObject({
     currentDocument: { updateTime: timestamp },
-    updateTransforms: expect.arrayContaining([
-      { fieldPath: "data.card.balanceAmount", increment: { integerValue: "-250" } },
-      { fieldPath: "data.card.transactionCount", increment: { integerValue: "1" } },
-    ]),
   });
+  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toContainValues([
+    { fieldPath: "data.card.balanceAmount", increment: { integerValue: "-250" } },
+    { fieldPath: "data.card.transactionCount", increment: { integerValue: "1" } },
+  ]);
   expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual([
     { fieldPath: "balances.cardCategory.otherAmount", increment: { integerValue: "250" } },
     { fieldPath: "balances.spend.spentAmount", increment: { integerValue: "250" } },
@@ -388,12 +388,10 @@ test("card expenses debit the account, fund the payment category, and index the 
   }
 
   expect(writeAt(writes, "stashes/periodOne").updateTransforms).toBeUndefined();
-  expect(writeAt(writes, "stashes/shop").updateTransforms).toEqual(
-    expect.arrayContaining([
-      { fieldPath: "data.historicalBalances.`2026-10`", increment: { integerValue: "-250" } },
-      { fieldPath: "data.historicalSpending.`2026-10`", increment: { integerValue: "250" } },
-    ])
-  );
+  expect(writeAt(writes, "stashes/shop").updateTransforms).toContainValues([
+    { fieldPath: "data.historicalBalances.`2026-10`", increment: { integerValue: "-250" } },
+    { fieldPath: "data.historicalSpending.`2026-10`", increment: { integerValue: "250" } },
+  ]);
   expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 
@@ -407,11 +405,9 @@ test("income without a zero-based budget type credits cash without changing allo
     )
   );
 
-  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual(
-    expect.arrayContaining([
-      { fieldPath: "data.cash.balanceAmount", increment: { integerValue: "125" } },
-    ])
-  );
+  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toContainValues([
+    { fieldPath: "data.cash.balanceAmount", increment: { integerValue: "125" } },
+  ]);
   expect(writes.some((write) => write.update?.name === `${budgetPath}/periods/periodOne`)).toBe(
     false
   );
@@ -523,11 +519,9 @@ test("income remains writable in a period with no category balances yet", async 
     )
   );
 
-  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual(
-    expect.arrayContaining([
-      { fieldPath: "data.cash.balanceAmount", increment: { integerValue: "125" } },
-    ])
-  );
+  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toContainValues([
+    { fieldPath: "data.cash.balanceAmount", increment: { integerValue: "125" } },
+  ]);
 });
 
 test("upcoming expenses record obligations without debiting account balances", async () => {
@@ -592,12 +586,10 @@ test("deleting a card expense reverses payment funding and skips previews absent
     { fieldPath: "balances.cardCategory.otherAmount", increment: { integerValue: "-250" } },
     { fieldPath: "balances.spend.spentAmount", increment: { integerValue: "-250" } },
   ]);
-  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual(
-    expect.arrayContaining([
-      { fieldPath: "data.card.balanceAmount", increment: { integerValue: "250" } },
-      { fieldPath: "data.card.transactionCount", increment: { integerValue: "-1" } },
-    ])
-  );
+  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toContainValues([
+    { fieldPath: "data.card.balanceAmount", increment: { integerValue: "250" } },
+    { fieldPath: "data.card.transactionCount", increment: { integerValue: "-1" } },
+  ]);
   expect(
     writes.some((write) => write.update?.name === `${budgetPath}/stashes/transactionsIndex`)
   ).toBe(false);
@@ -611,24 +603,26 @@ test("deleting a card expense reverses payment funding and skips previews absent
 
 test("unfunded card expenses and duplicate tags are refused before committing", async () => {
   const { service, calls } = fixture();
-  await expect(
+  await assert.rejects(
     service.create({
       accountId: "card",
       amountMinor: 50_001,
       categoryId: "spend",
       completed: true,
       dueAt: timestamp,
-    })
-  ).rejects.toThrow("Fund the expense category");
-  await expect(
+    }),
+    /Fund the expense category/u
+  );
+  await assert.rejects(
     service.create({
       accountId: "card",
       amountMinor: 100,
       categoryId: "spend",
       dueAt: timestamp,
       tagIds: ["trip", "trip"],
-    })
-  ).rejects.toThrow("unique IDs");
+    }),
+    /unique IDs/u
+  );
   expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 
@@ -676,10 +670,10 @@ test("canonical history includes upcoming records whose budget period has not be
   );
 
   const client = new BeyondClient(session, {
-    fetcher: (input) => {
-      urls.push(String(input));
+    fetcher: async (input) => {
+      urls.push(new Request(input).url);
 
-      return Promise.resolve(
+      return await Promise.resolve(
         Response.json({
           documents: [
             {
@@ -723,12 +717,14 @@ test("account history queries both target directions without an unavailable comp
   let query: unknown;
 
   const client = new BeyondClient(session, {
-    fetcher: (input, init) => {
-      expect(String(input)).toBe(`https://firestore.googleapis.com/v1/${budgetPath}:runQuery`);
+    fetcher: async (input, init) => {
+      expect(new Request(input).url).toBe(
+        `https://firestore.googleapis.com/v1/${budgetPath}:runQuery`
+      );
       expect(init?.method).toBe("POST");
-      query = JSON.parse(String(init?.body));
+      query = JSON.parse(await new Request(input, init).text());
 
-      return Promise.resolve(
+      return await Promise.resolve(
         Response.json([
           {
             document: {
@@ -839,10 +835,10 @@ test("monthly funding includes other funds and carryover but keeps upcoming obli
 
 test("funding queries reject missing months and categories instead of inventing balances", async () => {
   const { client, calls } = fixture();
-  await expect(categoryFunding(client, "2026-13")).rejects.toThrow("YYYY-MM");
+  await assert.rejects(categoryFunding(client, "2026-13"), /YYYY-MM/u);
   expect(calls).toHaveLength(0);
-  await expect(categoryFunding(client, "2026-09")).rejects.toThrow("does not exist");
-  await expect(categoryFunding(client, "2026-10", "missing")).rejects.toThrow("Category not found");
+  await assert.rejects(categoryFunding(client, "2026-09"), /does not exist/u);
+  await assert.rejects(categoryFunding(client, "2026-10", "missing"), /Category not found/u);
   expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 
@@ -865,11 +861,11 @@ test("funding queries reject unsafe money and retain zero funds for categories w
   documents.set(`${budgetPath}/periods/periodOne`, {
     balances: { spend: { allocatedAmount: Number.MAX_SAFE_INTEGER, otherAmount: 1 } },
   });
-  await expect(categoryFunding(client, "2026-10")).rejects.toThrow("safe integer");
+  await assert.rejects(categoryFunding(client, "2026-10"), /safe integer/u);
   documents.set(`${budgetPath}/periods/periodOne`, {
     balances: { spend: { allocatedAmount: 1.5 } },
   });
-  await expect(categoryFunding(client, "2026-10")).rejects.toThrow();
+  await assert.rejects(categoryFunding(client, "2026-10"));
 });
 
 test("diagnostics preserve conflicting raw links and unknown settings at their observed paths", async () => {
@@ -1130,7 +1126,12 @@ test("CLI funding, diagnostics, and compact dry runs expose semantic results wit
     ]);
 
     expect(preview.exitCode).toBe(0);
-    const result = JSON.parse(preview.stdout);
+
+    const result = z
+      .object({ body: z.unknown().optional() })
+      .loose()
+      .parse(JSON.parse(preview.stdout));
+
     expect(result).toMatchObject({
       automaticAllocation: false,
       dryRun: true,
@@ -1150,8 +1151,8 @@ test("CLI funding, diagnostics, and compact dry runs expose semantic results wit
     ]);
 
     expect(full.exitCode).toBe(0);
+    expect(JSON.parse(full.stdout)).toHaveProperty("body.writes", expect.any(Array));
     expect(JSON.parse(full.stdout)).toMatchObject({
-      body: { writes: expect.any(Array) },
       summary: { categories: [] },
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
@@ -1264,15 +1265,13 @@ test.each([
       await service.update(transactionId, { cleared: after }, { dryRun: true })
     );
 
-    expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual(
-      expect.arrayContaining([
-        { fieldPath: "data.cash.balanceAmount", increment: { integerValue: clearedDelta } },
-        {
-          fieldPath: "data.cash.unclearedBalanceAmount",
-          increment: { integerValue: unclearedDelta },
-        },
-      ])
-    );
+    expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toContainValues([
+      { fieldPath: "data.cash.balanceAmount", increment: { integerValue: clearedDelta } },
+      {
+        fieldPath: "data.cash.unclearedBalanceAmount",
+        increment: { integerValue: unclearedDelta },
+      },
+    ]);
     expect(writeAt(writes, "stashes/cash").updateTransforms).toEqual([
       { fieldPath: "data.historicalBalances.`2026-10`", increment: { integerValue: clearedDelta } },
     ]);
@@ -1289,9 +1288,10 @@ test("income history rejects a stored month that differs from its runtime due-da
     targetTo: { id: "cash", linkedObjectId: null, linkedObjectType: null, type: "GENERIC_ACCOUNT" },
     type: "INFLOW",
   });
-  await expect(service.delete(transactionId, { dryRun: true })).rejects.toThrow("month");
-  await expect(service.update(transactionId, { cleared: false }, { dryRun: true })).rejects.toThrow(
-    "month"
+  await assert.rejects(service.delete(transactionId, { dryRun: true }), /month/u);
+  await assert.rejects(
+    service.update(transactionId, { cleared: false }, { dryRun: true }),
+    /month/u
   );
   expect(calls.every((c) => c.method === "GET")).toBe(true);
 });
@@ -1442,7 +1442,7 @@ test("periodless upcoming recurring entries can change amounts and metadata with
   const writes = writesFrom(result);
   expect(
     writes
-      .filter((write) => !write.update?.name.includes("/saveMarkers/"))
+      .filter((write) => write.update?.name.includes("/saveMarkers/") !== true)
       .map((write) => write.update?.name)
   ).toEqual([
     `${budgetPath}/transactions/${transactionId}`,
@@ -1456,23 +1456,23 @@ test("periodless upcoming recurring entries can change amounts and metadata with
 
 test("amount edits reject insufficient card funds, allocation effects, and unsafe amounts before committing", async () => {
   const { service, documents, calls } = fixture();
-  await expect(
-    service.update(transactionId, { amountMinor: 50_001 }, { dryRun: true })
-  ).rejects.toThrow("Fund the expense category");
+  await assert.rejects(
+    service.update(transactionId, { amountMinor: 50_001 }, { dryRun: true }),
+    /Fund the expense category/u
+  );
   await Promise.all(
     [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1].map(async (amountMinor) => {
-      await expect(
-        service.update(transactionId, { amountMinor }, { dryRun: true })
-      ).rejects.toThrow();
+      await assert.rejects(service.update(transactionId, { amountMinor }, { dryRun: true }));
     })
   );
   documents.set(`${budgetPath}/transactions/${transactionId}`, {
     ...canonicalTransaction,
     autoAllocateIfCapable: true,
   });
-  await expect(
-    service.update(transactionId, { amountMinor: 300 }, { dryRun: true })
-  ).rejects.toThrow("allocation");
+  await assert.rejects(
+    service.update(transactionId, { amountMinor: 300 }, { dryRun: true }),
+    /allocation/u
+  );
   expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 
@@ -1538,20 +1538,12 @@ test("moving an upcoming bill to another month reverses the old obligation and u
   expect(writeAt(writes, "stashes/periodTwo").updateMask?.fieldPaths).toEqual([
     `data.upcomingTransactions.${transactionId}`,
   ]);
-  expect(result.summary?.categories).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        after: expect.objectContaining({ upcomingAmount: 0 }),
-        before: expect.objectContaining({ upcomingAmount: 250 }),
-        yearMonth: "2026-10",
-      }),
-      expect.objectContaining({
-        after: expect.objectContaining({ upcomingAmount: 500 }),
-        before: expect.objectContaining({ upcomingAmount: 100 }),
-        yearMonth: "2026-11",
-      }),
-    ])
-  );
+  expect(
+    result.summary?.categories.find((category) => category.yearMonth === "2026-10")
+  ).toMatchObject({ after: { upcomingAmount: 0 }, before: { upcomingAmount: 250 } });
+  expect(
+    result.summary?.categories.find((category) => category.yearMonth === "2026-11")
+  ).toMatchObject({ after: { upcomingAmount: 500 }, before: { upcomingAmount: 100 } });
 });
 
 test("account, category, payee, and tag edits move spending, reserves, history, and usage counts", async () => {
@@ -1578,27 +1570,21 @@ test("account, category, payee, and tag edits move spending, reserves, history, 
   );
 
   const writes = writesFrom(result);
-  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual(
-    expect.arrayContaining([
-      { fieldPath: "data.card.balanceAmount", increment: { integerValue: "250" } },
-      { fieldPath: "data.cash.balanceAmount", increment: { integerValue: "-250" } },
-      { fieldPath: "data.card.transactionCount", increment: { integerValue: "-1" } },
-      { fieldPath: "data.cash.transactionCount", increment: { integerValue: "1" } },
-    ])
-  );
-  expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual(
-    expect.arrayContaining([
-      { fieldPath: "balances.cardCategory.otherAmount", increment: { integerValue: "-250" } },
-      { fieldPath: "balances.spend.spentAmount", increment: { integerValue: "-250" } },
-      { fieldPath: "balances.food.spentAmount", increment: { integerValue: "250" } },
-    ])
-  );
-  expect(writeAt(writes, "stashes/food").updateTransforms).toEqual(
-    expect.arrayContaining([
-      { fieldPath: "data.historicalSpending.`2026-10`", increment: { integerValue: "250" } },
-      { fieldPath: "data.completedTransactionCount", increment: { integerValue: "1" } },
-    ])
-  );
+  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toContainValues([
+    { fieldPath: "data.card.balanceAmount", increment: { integerValue: "250" } },
+    { fieldPath: "data.cash.balanceAmount", increment: { integerValue: "-250" } },
+    { fieldPath: "data.card.transactionCount", increment: { integerValue: "-1" } },
+    { fieldPath: "data.cash.transactionCount", increment: { integerValue: "1" } },
+  ]);
+  expect(writeAt(writes, "periods/periodOne").updateTransforms).toContainValues([
+    { fieldPath: "balances.cardCategory.otherAmount", increment: { integerValue: "-250" } },
+    { fieldPath: "balances.spend.spentAmount", increment: { integerValue: "-250" } },
+    { fieldPath: "balances.food.spentAmount", increment: { integerValue: "250" } },
+  ]);
+  expect(writeAt(writes, "stashes/food").updateTransforms).toContainValues([
+    { fieldPath: "data.historicalSpending.`2026-10`", increment: { integerValue: "250" } },
+    { fieldPath: "data.completedTransactionCount", increment: { integerValue: "1" } },
+  ]);
 
   for (const index of ["shop", "trip"]) {
     expect(writeAt(writes, `stashes/${index}`).updateMask?.fieldPaths).toContain(
@@ -1644,11 +1630,9 @@ test("date edits use the transaction timezone and permit upcoming months with no
     yearMonth: { stringValue: "2027-01" },
   });
   expect(
-    writesFrom(result).filter((write) => write.update?.name.includes("/periods/"))
+    writesFrom(result).filter((write) => write.update?.name.includes("/periods/") === true)
   ).toHaveLength(1);
-  await expect(
-    service.update(transactionId, { timezone: "Not/AZone" }, { dryRun: true })
-  ).rejects.toThrow();
+  await assert.rejects(service.update(transactionId, { timezone: "Not/AZone" }, { dryRun: true }));
 });
 
 test("recurring metadata edits preserve series identity and schedule without ledger writes", async () => {
@@ -1687,7 +1671,9 @@ test("recurring metadata edits preserve series identity and schedule without led
     "sentiment",
   ]);
   expect(
-    writes.every((write) => !write.updateTransforms?.some((transform) => "increment" in transform))
+    writes.every(
+      (write) => write.updateTransforms?.some((transform) => "increment" in transform) !== true
+    )
   ).toBe(true);
   expect(result.summary?.transaction.after).toMatchObject({
     frequency: "MONTHLY",
@@ -1901,7 +1887,10 @@ test.each(InvalidEdits)(
   "invalid edits fail before a commit: $message",
   async ({ changes, message }) => {
     const { service, calls } = fixture();
-    await expect(service.update(transactionId, changes, { dryRun: true })).rejects.toThrow(message);
+    await assert.rejects(
+      service.update(transactionId, changes, { dryRun: true }),
+      new RegExp(RegExp.escape(message), "u")
+    );
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   }
 );
@@ -1950,8 +1939,8 @@ test("CLI update accepts amounts and recurrence fields and previews the complete
     ]);
 
     expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toHaveProperty("body.writes", expect.any(Array));
     expect(JSON.parse(result.stdout)).toMatchObject({
-      body: { writes: expect.any(Array) },
       dryRun: true,
       summary: {
         transaction: {

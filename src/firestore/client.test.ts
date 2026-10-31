@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import assert from "node:assert/strict";
 
 import { z } from "zod";
 
@@ -43,22 +44,22 @@ test("a lost commit response is resolved by its atomic marker without replaying 
   let body: unknown;
 
   const client = new BeyondClient(session, {
-    fetcher: (input, init) => {
+    fetcher: async (input, init) => {
       const headers = new Headers(init?.headers);
       requests.push({
         appCheck: headers.get("X-Firebase-AppCheck"),
         authorization: headers.get("Authorization"),
         method: init?.method ?? "GET",
-        url: String(input),
+        url: new Request(input).url,
       });
 
       if (init?.method === "POST") {
-        body = JSON.parse(String(init.body));
+        body = JSON.parse(await new Request(input, init).text());
 
-        return Promise.reject(new Error("Connection lost after write"));
+        throw new Error("Connection lost after write");
       }
 
-      return Promise.resolve(
+      return await Promise.resolve(
         Response.json({
           fields: { createdAt: { timestampValue: timestamp } },
           name: `${budgetPath}/saveMarkers/${requestId}`,
@@ -106,10 +107,10 @@ test("a snapshot conflict with no saved marker remains a failure and is not retr
   const methods: string[] = [];
 
   const client = new BeyondClient(session, {
-    fetcher: (_input, init) => {
+    fetcher: async (_input, init) => {
       methods.push(init?.method ?? "GET");
 
-      return Promise.resolve(
+      return await Promise.resolve(
         init?.method === "POST"
           ? Response.json(
               { error: { message: "Document changed", status: "FAILED_PRECONDITION" } },
@@ -120,7 +121,7 @@ test("a snapshot conflict with no saved marker remains a failure and is not retr
     },
   });
 
-  await expect(client.commit(writes, { requestId })).rejects.toThrow("FAILED_PRECONDITION");
+  await assert.rejects(client.commit(writes, { requestId }), /FAILED_PRECONDITION/u);
   expect(methods).toEqual(["POST", "GET"]);
 });
 
@@ -131,12 +132,13 @@ test("a write outside the selected budget is rejected before any network request
     fetcher: () => {
       requests += 1;
 
-      return Promise.reject(new Error("Unexpected request"));
+      throw new Error("Unexpected request");
     },
   });
 
-  await expect(
-    client.commit([{ delete: `${root}/budgets/anotherBudget/transactions/one` }])
-  ).rejects.toThrow("outside the selected budget");
+  await assert.rejects(
+    client.commit([{ delete: `${root}/budgets/anotherBudget/transactions/one` }]),
+    /outside the selected budget/u
+  );
   expect(requests).toBe(0);
 });

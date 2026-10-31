@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import assert from "node:assert/strict";
 
 import type { Session } from "../auth/session.ts";
 import { BeyondClient } from "../firestore/client.ts";
@@ -83,8 +84,8 @@ const fixture = () => {
   const requests: string[] = [];
 
   const client = new BeyondClient(session, {
-    fetcher: (input, init) => {
-      const path = new URL(String(input)).pathname.slice(4);
+    fetcher: async (input, init) => {
+      const path = new URL(new Request(input).url).pathname.slice(4);
       requests.push(path);
 
       if (init?.method !== "GET") {
@@ -93,7 +94,7 @@ const fixture = () => {
 
       const data = documents.get(path);
 
-      return Promise.resolve(
+      return await Promise.resolve(
         data
           ? Response.json({ fields: encodeFields(data), name: path, updateTime: timestamp })
           : Response.json(
@@ -185,7 +186,7 @@ test.each([null, "100", 0.5, Number.MAX_SAFE_INTEGER + 1])(
   async (value) => {
     const { balance, client } = fixture();
     balance.otherAmount = value;
-    await expect(categoryTargets(client, { yearMonth: "2026-10" })).rejects.toThrow();
+    await assert.rejects(categoryTargets(client, { yearMonth: "2026-10" }));
   }
 );
 
@@ -195,7 +196,7 @@ test("an unsafe availability total is rejected and exact safe cancellation is ac
   balance.carriedOverAmount = 1;
   balance.otherAmount = 0;
   balance.spentAmount = 0;
-  await expect(categoryTargets(client, { yearMonth: "2026-10" })).rejects.toThrow("safe integer");
+  await assert.rejects(categoryTargets(client, { yearMonth: "2026-10" }), /safe integer/u);
   balance.spentAmount = 1;
   const result = await categoryTargets(client, { yearMonth: "2026-10" });
   expect(result.targets[0]?.month?.availableAmount).toBe(Number.MAX_SAFE_INTEGER);
@@ -204,7 +205,7 @@ test("an unsafe availability total is rejected and exact safe cancellation is ac
 test("malformed period balance maps are not silently treated as empty months", async () => {
   const { client, period } = fixture();
   delete period.balances;
-  await expect(categoryTargets(client, { yearMonth: "2026-10" })).rejects.toThrow();
+  await assert.rejects(categoryTargets(client, { yearMonth: "2026-10" }));
 });
 
 test("target filtering distinguishes nonexistent categories from categories without a target and uses stable map-key order", async () => {
@@ -219,15 +220,13 @@ test("target filtering distinguishes nonexistent categories from categories with
     amount: "raw-value",
     type: "UNKNOWN",
   });
-  await expect(categoryTargets(client, { categoryId: "missing" })).rejects.toThrow(
-    "Category not found"
-  );
+  await assert.rejects(categoryTargets(client, { categoryId: "missing" }), /Category not found/u);
 });
 
 test("invalid filters fail without reads and a missing month fails instead of selecting another month", async () => {
   const { client, requests } = fixture();
-  await expect(categoryTargets(client, { yearMonth: "2026-00" })).rejects.toThrow();
-  await expect(categoryTargets(client, { categoryId: "../escape" })).rejects.toThrow();
+  await assert.rejects(categoryTargets(client, { yearMonth: "2026-00" }));
+  await assert.rejects(categoryTargets(client, { categoryId: "../escape" }));
   expect(requests).toEqual([]);
-  await expect(categoryTargets(client, { yearMonth: "2027-01" })).rejects.toThrow("does not exist");
+  await assert.rejects(categoryTargets(client, { yearMonth: "2027-01" }), /does not exist/u);
 });

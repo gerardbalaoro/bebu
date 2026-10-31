@@ -19,7 +19,7 @@ export const planSmartAllocation = (
 
       if (
         category.accumulationStrategy === "FUND_OVERRUNS" ||
-        category.target?.snoozeSchedule[yearMonth]
+        category.target?.snoozeSchedule[yearMonth] === true
       ) {
         throw new Error(
           `Smart preview does not support fund-overruns or snoozed targets: ${category.id}`

@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { profilePath } from "./auth/browser.ts";
-import { saveSession, sessionPath } from "./auth/session.ts";
+import { loadSession, saveSession, sessionPath } from "./auth/session.ts";
 import { dataHome } from "./state.ts";
 
 test("the default data home belongs to bebu without the nodejs suffix", () => {
@@ -50,9 +50,7 @@ test("BEBU_HOME places saved sessions and owned browser state in the same data f
       uid: "fixture",
       version: 1,
     });
-    expect(JSON.parse(await readFile(nodePath.join(directory, "session.json"), "utf-8")).uid).toBe(
-      "fixture"
-    );
+    expect(await loadSession()).toMatchObject({ uid: "fixture" });
   } finally {
     if (previous === undefined) {
       delete process.env.BEBU_HOME;

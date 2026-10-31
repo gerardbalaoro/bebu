@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { captureExecute } from "@crustjs/testing";
+import { z } from "zod";
 
 import { createApp } from "./app.ts";
 
@@ -38,7 +39,9 @@ test("account payloads cannot overwrite balances even when the JSON is well form
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
-    expect(JSON.parse(result.stderr)).toEqual({ error: expect.stringContaining("balanceAmount") });
+    expect(z.strictObject({ error: z.string() }).parse(JSON.parse(result.stderr)).error).toContain(
+      "balanceAmount"
+    );
   } finally {
     await rm(directory, { force: true, recursive: true });
   }
@@ -67,7 +70,9 @@ test("missing payloads and invalid login timeouts fail with the command's output
   const structured = await captureExecute(createApp(), ["transactions", "create"]);
   expect(structured.exitCode).toBe(1);
   expect(structured.stdout).toBe("");
-  expect(JSON.parse(structured.stderr)).toEqual({ error: expect.stringContaining("file") });
+  expect(
+    z.strictObject({ error: z.string() }).parse(JSON.parse(structured.stderr)).error
+  ).toContain("file");
 });
 
 test("login parser errors stay readable and never expose credential arguments", async () => {
@@ -76,7 +81,9 @@ test("login parser errors stay readable and never expose credential arguments", 
     ["auth", "login", "test@example.com", "fixture-password", "--bad-flag"],
   ];
 
-  const results = await Promise.all(cases.map((argv) => captureExecute(createApp(), argv)));
+  const results = await Promise.all(
+    cases.map(async (argv) => await captureExecute(createApp(), argv))
+  );
 
   for (const result of results) {
     expect(result.exitCode).toBe(1);

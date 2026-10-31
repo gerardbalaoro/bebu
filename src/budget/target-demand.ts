@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { savingsTargetDemand } from "./savings-target.ts";
 
-const amountSchema = z.number().int().safe();
+const amountSchema = z.number().int();
 
 const targetSchema = z.object({
   amount: amountSchema,

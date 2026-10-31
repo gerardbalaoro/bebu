@@ -44,16 +44,16 @@ test("allocation reports keep negative allocations in the total without inflatin
   };
 
   const client = new BeyondClient(session, {
-    fetcher: (url, init) => {
+    fetcher: async (url, init) => {
       expect(init?.method).toBe("GET");
-      const path = new URL(String(url)).pathname.slice(4);
+      const path = new URL(new Request(url).url).pathname.slice(4);
       const data = Object.entries(documents).find(([name]) => name === path)?.[1];
 
       if (!data) {
-        return Promise.reject(new Error(`Missing fixture ${path}`));
+        throw new Error(`Missing fixture ${path}`);
       }
 
-      return Promise.resolve(
+      return await Promise.resolve(
         Response.json({
           fields: encodeFields(data),
           name: path,

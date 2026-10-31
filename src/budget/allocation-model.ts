@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { ObjectIdSchema } from "./transaction-model.ts";
 
-export const allocationMoney = z.number().int().safe();
+export const allocationMoney = z.number().int();
 
 const weekday = z.enum([
   "MONDAY",

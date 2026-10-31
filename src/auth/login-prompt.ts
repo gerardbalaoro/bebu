@@ -6,8 +6,14 @@ import { login } from "./login.ts";
 import type { LoginOptions } from "./login.ts";
 import type { Session } from "./session.ts";
 
-export const signedInMessage = (session: Session): string =>
-  `Signed in as ${session.displayName?.trim() || session.email?.trim() || session.uid}`;
+export const signedInMessage = (session: Session): string => {
+  const name =
+    [session.displayName, session.email]
+      .map((value) => value?.trim())
+      .find((value) => value !== undefined && value !== "") ?? session.uid;
+
+  return `Signed in as ${name}`;
+};
 
 export const loginWithPrompts = async (
   options: LoginOptions,
@@ -29,7 +35,7 @@ export const loginWithPrompts = async (
 
     status.stop(signedInMessage(session));
 
-    if (session.selectedBudgetName) {
+    if (session.selectedBudgetName !== undefined && session.selectedBudgetName !== "") {
       log.success(`Selected budget: ${session.selectedBudgetName}`, display);
     }
 
@@ -39,7 +45,7 @@ export const loginWithPrompts = async (
     return session;
   } catch (error) {
     status.clear();
-    cancel(options.signal?.aborted ? "Sign-in cancelled" : "Sign-in failed", display);
+    cancel(options.signal?.aborted === true ? "Sign-in cancelled" : "Sign-in failed", display);
 
     throw error;
   }

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import assert from "node:assert/strict";
 
 import { BeyondClient } from "../firestore/client.ts";
 import { encodeFields } from "../firestore/encoding.ts";
@@ -65,16 +66,16 @@ test("allocation averages use saved prior months, exclude nonpositive values, an
       version: 1,
     },
     {
-      fetcher: (input, init) => {
+      fetcher: async (input, init) => {
         if (init?.method !== "GET") {
           throw new Error("Averages attempted a write");
         }
 
-        const requested = new URL(String(input)).pathname.slice(4);
+        const requested = new URL(new Request(input).url).pathname.slice(4);
         requests.push(requested);
         const data = documents.get(requested);
 
-        return Promise.resolve(
+        return await Promise.resolve(
           data
             ? Response.json({
                 fields: encodeFields(data),
@@ -116,5 +117,5 @@ test("allocation averages use saved prior months, exclude nonpositive values, an
     },
   ]);
   documents.delete(`${path}/periods/august`);
-  await expect(allocationAverages(client, "2026-10", 3)).rejects.toThrow("404");
+  await assert.rejects(allocationAverages(client, "2026-10", 3), /404/u);
 });

@@ -52,13 +52,19 @@ const withLoginBrowser = async <T>(
 ): Promise<T> => {
   options.signal?.throwIfAborted();
 
-  const useProfile = options.fresh || options.headless || runtime.launch;
-  const systemBrowser = useProfile || runtime.connect ? undefined : await systemBrowserPath();
+  const useProfile =
+    options.fresh === true || options.headless === true || runtime.launch !== undefined;
+
+  const systemBrowser =
+    useProfile || runtime.connect !== undefined ? undefined : await systemBrowserPath();
 
   const connect =
-    runtime.connect ?? (systemBrowser ? () => connectBrowser(systemBrowser) : undefined);
+    runtime.connect ??
+    (systemBrowser !== undefined && systemBrowser !== ""
+      ? async () => await connectBrowser(systemBrowser)
+      : undefined);
 
-  if (!useProfile && connect) {
+  if (!useProfile && connect !== undefined) {
     options.progress?.(
       "Connecting to Chrome.\nIf Chrome asks for permission, select Allow. Your existing login will be reused."
     );
@@ -90,7 +96,7 @@ const withLoginBrowser = async <T>(
 
   return await withBrowserProfile(async (profile) => {
     options.progress?.(
-      options.headless
+      options.headless === true
         ? "Reconnecting to Beyond Budget..."
         : "Opening Beyond Budget in bebu's saved profile.\nSign in if asked, then open your budget."
     );
@@ -121,7 +127,7 @@ const readySession = (session: Session): boolean => {
     session.appCheckExpiresAt > cutoff &&
     Boolean(session.appCheckToken) &&
     session.budgetIds.length > 0 &&
-    Boolean(session.selectedBudgetId || session.budgetIds.length === 1)
+    (Boolean(session.selectedBudgetId) || session.budgetIds.length === 1)
   );
 };
 
@@ -186,7 +192,7 @@ const captureSession = async (
   }
 
   throw new AuthError(
-    options.headless
+    options.headless === true
       ? "Your saved browser session needs sign-in. Run bebu auth login"
       : "Sign-in timed out. Run bebu auth login. Sign in. Open your budget"
   );
@@ -205,7 +211,10 @@ export const login = async (
   const options = { ...input, ...parsed.data };
   const controller = new AbortController();
   const signal = options.signal ?? controller.signal;
-  const interrupt = () => controller.abort(new DOMException("Sign-in cancelled", "AbortError"));
+
+  const interrupt = () => {
+    controller.abort(new DOMException("Sign-in cancelled", "AbortError"));
+  };
 
   if (!options.signal) {
     process.once("SIGINT", interrupt);
@@ -219,7 +228,7 @@ export const login = async (
       const captureSignal = AbortSignal.any([signal, deadlineController.signal]);
       let closing: Promise<void> | undefined;
 
-      const close = (): Promise<void> => {
+      const close = async (): Promise<void> => {
         closing ??= (async () => {
           try {
             const page = await opening;
@@ -231,7 +240,7 @@ export const login = async (
           // Cancellation can close the connection before cleanup completes.
         });
 
-        return closing;
+        await closing;
       };
 
       const stop = () => {
@@ -253,17 +262,15 @@ export const login = async (
         const page = await opening;
         captureSignal.throwIfAborted();
         await page.goto(ORIGIN, { timeout: 30_000, waitUntil: "domcontentloaded" });
-        timer = setTimeout(
-          () =>
-            deadlineController.abort(
-              new AuthError(
-                options.headless
-                  ? "Your saved browser session needs sign-in. Run bebu auth login"
-                  : "Sign-in timed out. Run bebu auth login, sign in, and open your budget"
-              )
-            ),
-          timeout
-        );
+        timer = setTimeout(() => {
+          deadlineController.abort(
+            new AuthError(
+              options.headless
+                ? "Your saved browser session needs sign-in. Run bebu auth login"
+                : "Sign-in timed out. Run bebu auth login, sign in, and open your budget"
+            )
+          );
+        }, timeout);
 
         const session = await captureSession(
           page,

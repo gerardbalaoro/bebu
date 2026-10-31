@@ -50,7 +50,7 @@ const get = (object: Data, path: string[]): unknown => {
   let value: unknown = object;
 
   for (const key of path) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
       return undefined;
     }
 
@@ -107,7 +107,7 @@ export class MutationPlan {
     const entry = await this.entry(name);
     const field = fieldPath(...path);
     const existing = get(entry.doc.data, path);
-    const numeric = z.number().int().safe().safeParse(existing);
+    const numeric = z.number().int().safeParse(existing);
     const accumulated = (entry.increments.get(field) ?? 0) + amount;
 
     if (
@@ -125,25 +125,25 @@ export class MutationPlan {
   }
   amountChange(name: string, path: string[]) {
     const entry = this.docs.get(name);
+    let change: { after: number; before: number; delta: number } | undefined;
 
-    if (!entry) {
-      return;
+    if (entry !== undefined) {
+      const before = z
+        .number()
+        .int()
+        .parse(get(entry.doc.data, path) ?? 0);
+
+      const delta = entry.increments.get(fieldPath(...path)) ?? 0;
+      const after = before + delta;
+
+      if (!Number.isSafeInteger(after)) {
+        throw new TypeError("The resulting amount must be a safe integer");
+      }
+
+      change = { after, before, delta };
     }
 
-    const before = z
-      .number()
-      .int()
-      .safe()
-      .parse(get(entry.doc.data, path) ?? 0);
-
-    const delta = entry.increments.get(fieldPath(...path)) ?? 0;
-    const after = before + delta;
-
-    if (!Number.isSafeInteger(after)) {
-      throw new TypeError("The resulting amount must be a safe integer");
-    }
-
-    return { after, before, delta };
+    return change;
   }
   writes(): Write[] {
     const writes = [...this.extra];
@@ -179,12 +179,12 @@ const supported = (transaction: Transaction): void => {
   }
 
   if (
-    transaction.splitId ||
-    transaction.siblingTransactionId ||
-    transaction.clonedToTransactionId ||
-    transaction.subType ||
+    Boolean(transaction.splitId) ||
+    Boolean(transaction.siblingTransactionId) ||
+    Boolean(transaction.clonedToTransactionId) ||
+    Boolean(transaction.subType) ||
     transaction.extraTarget ||
-    Object.keys(transaction.extras || {}).length ||
+    Object.keys(transaction.extras).length ||
     transaction.files?.length
   ) {
     throw new Error(
@@ -246,11 +246,11 @@ export class TransactionService {
     const context = await this.context();
 
     const timezone =
-      input.timezone ||
-      context.user.config?.timezone ||
-      Intl.DateTimeFormat().resolvedOptions().timeZone;
+      [input.timezone, context.user.config?.timezone].find(
+        (candidate) => candidate !== undefined && candidate !== ""
+      ) ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-    const dueAt = new Date(input.dueAt || Date.now());
+    const dueAt = new Date(input.dueAt ?? Date.now());
 
     if (!Number.isFinite(dueAt.getTime())) {
       throw new TypeError("dueAt is invalid. Use an ISO timestamp with a timezone");
@@ -271,13 +271,13 @@ export class TransactionService {
     const yearMonth = `${parts.year}-${parts.month}`;
     const periodId = context.budget.data.availablePeriods?.[yearMonth]?.id;
 
-    if (!periodId) {
+    if (periodId === undefined || periodId === "") {
       throw new Error(
         `Budget period ${yearMonth} does not exist. Create or select that period in the app`
       );
     }
 
-    const type = input.type || "OUTFLOW";
+    const { type } = input;
     let targetFrom: Target | null = null;
     let targetTo: Target | null = null;
 
@@ -307,22 +307,22 @@ export class TransactionService {
       throw new Error("A future transaction must have completed=false");
     }
 
-    const id = requireId(input.id || options.requestId || newId());
+    const id = requireId(input.id ?? options.requestId ?? newId());
     let payee: Target | null = null;
 
-    if (input.payeeId) {
+    if (input.payeeId !== undefined) {
       const stashResult = await this.client.stash("PAYEES", LabelsSchema);
       const payees = stashResult.data.data;
       const p = payees[input.payeeId];
 
-      if (!p || p.archived) {
+      if (!p || p.archived === true) {
         throw new Error("Payee not found");
       }
 
       payee = { id: p.id, linkedObjectId: null, linkedObjectType: null, type: "PAYEE" };
     }
 
-    const tagIds = input.tagIds || [];
+    const tagIds = input.tagIds ?? [];
 
     if (!Array.isArray(tagIds) || new Set(tagIds).size !== tagIds.length) {
       throw new Error("tagIds must be a list of unique IDs");
@@ -333,7 +333,7 @@ export class TransactionService {
       const tags = stashResult1.data.data;
 
       for (const tagId of tagIds) {
-        if (!tags[tagId] || tags[tagId].archived) {
+        if (!tags[tagId] || tags[tagId].archived === true) {
           throw new Error("Tag not found");
         }
       }
@@ -351,7 +351,11 @@ export class TransactionService {
 
     const account = context.accountMap[input.accountId];
 
-    if (account?.currencyCode && account.currencyCode !== context.user.config?.currencyCode) {
+    if (
+      account?.currencyCode !== undefined &&
+      account.currencyCode !== "" &&
+      account.currencyCode !== context.user.config?.currencyCode
+    ) {
       throw new Error("bebu does not support changes to foreign-currency transactions");
     }
 
@@ -362,13 +366,13 @@ export class TransactionService {
       budgetId: this.client.budgetId,
       cleared: input.cleared ?? true,
       clonedToTransactionId: null,
-      color: input.color || "NONE",
+      color: input.color === undefined || input.color === "" ? "NONE" : input.color,
       completed,
       createdAt: new Date().toISOString(),
       createdBy: {
-        displayName: context.user.displayName || "",
+        displayName: context.user.displayName ?? "",
         email: null,
-        photoUrl: context.user.photoUrl || "",
+        photoUrl: context.user.photoUrl ?? "",
         uid: this.client.session.uid,
       },
       dueAt: dueAt.toISOString(),
@@ -384,7 +388,7 @@ export class TransactionService {
       latitude: null,
       longitude: null,
       nonWorkingDayPolicy: "KEEP_ORIGINAL_DATE",
-      notes: input.notes || "",
+      notes: input.notes ?? "",
       offsetAdjustment: 0,
       payee,
       periodId,
@@ -421,7 +425,10 @@ export class TransactionService {
       update: { fields: encodeFields(wire), name: `${this.client.budgetPath}/transactions/${id}` },
     });
     await this.apply(plan, transaction, 1, context);
-    const summary = options.dryRun ? transactionSummary(plan, null, transaction) : undefined;
+
+    const summary =
+      options.dryRun === true ? transactionSummary(plan, null, transaction) : undefined;
+
     const result = await this.client.commit(plan.writes(), options);
 
     return { ...result, automaticAllocation: false, summary, transactionId: id };
@@ -438,7 +445,7 @@ export class TransactionService {
       throw new Error("Creating or deleting a recurring transaction requires the native app");
     }
 
-    if (!transaction.periodId) {
+    if (transaction.periodId === undefined || transaction.periodId === null) {
       throw new Error("The transaction has no budget period. Select its month in the app");
     }
 
@@ -446,8 +453,9 @@ export class TransactionService {
     const accountPath = context.accounts.name;
     const categoryPath = context.categories.name;
 
-    const increment = (name: string, path: string[], amount: number) =>
-      plan.increment(name, path, amount);
+    const increment = async (name: string, path: string[], amount: number) => {
+      await plan.increment(name, path, amount);
+    };
 
     const accountTargets = [transaction.targetFrom, transaction.targetTo].filter(
       (target): target is Target => target !== null && target.type !== "CATEGORY"
@@ -463,7 +471,9 @@ export class TransactionService {
     for (const path of paths) {
       const entry = await plan.entry(path);
 
-      if (direction < 0 && !get(entry.doc.data, ["data", bucket, transaction.id])) {
+      const hasPreview = Boolean(get(entry.doc.data, ["data", bucket, transaction.id]));
+
+      if (direction < 0 && !hasPreview) {
         continue;
       }
 
@@ -497,7 +507,7 @@ export class TransactionService {
       }
     }
 
-    if (transaction.payee?.id) {
+    if (transaction.payee !== null) {
       await increment(
         `${this.client.budgetPath}/stashes/${this.client.stashId("PAYEES")}`,
         ["data", transaction.payee.id, "transactionCount"],
@@ -505,7 +515,7 @@ export class TransactionService {
       );
     }
 
-    for (const id of transaction.tagIds || []) {
+    for (const id of transaction.tagIds) {
       await increment(
         `${this.client.budgetPath}/stashes/${this.client.stashId("TAGS")}`,
         ["data", id, "transactionCount"],
@@ -523,7 +533,8 @@ export class TransactionService {
     plan.extra.push({ currentDocument: { updateTime: doc.updateTime }, delete: doc.name });
     await this.apply(plan, transaction, -1, context);
 
-    const summary = options.dryRun ? transactionSummary(plan, transaction, null) : undefined;
+    const summary =
+      options.dryRun === true ? transactionSummary(plan, transaction, null) : undefined;
 
     return {
       ...(await this.client.commit(plan.writes(), options)),
@@ -544,7 +555,7 @@ export class TransactionService {
       throw new Error("The transaction identity does not match its document path");
     }
 
-    if (transaction.splitId || transaction.reconciled || !transaction.editable) {
+    if (Boolean(transaction.splitId) || transaction.reconciled || !transaction.editable) {
       throw new Error("bebu changes only editable, unreconciled transactions without splits");
     }
 
@@ -622,7 +633,9 @@ export class TransactionService {
     }
 
     await updateTransactionIndexes(plan, transaction, after, context);
-    const summary = options.dryRun ? transactionSummary(plan, transaction, after) : undefined;
+
+    const summary =
+      options.dryRun === true ? transactionSummary(plan, transaction, after) : undefined;
 
     return {
       ...(await this.client.commit(plan.writes(), options)),
@@ -644,7 +657,7 @@ export class TransactionService {
       throw new Error("limit must be an integer from 1 to 1000");
     }
 
-    if (accountId) {
+    if (accountId !== undefined && accountId !== "") {
       requireId(accountId);
 
       const result = await this.client.request(
@@ -691,7 +704,7 @@ export class TransactionService {
       ["orderBy", "dueAt desc"],
     ]);
 
-    if (pageToken) {
+    if (pageToken !== undefined && pageToken !== "") {
       query.set("pageToken", pageToken);
     }
 
@@ -701,9 +714,9 @@ export class TransactionService {
     );
 
     return {
-      nextPageToken: result.nextPageToken || null,
+      nextPageToken: result.nextPageToken === "" ? null : (result.nextPageToken ?? null),
       source: "canonical-collection",
-      transactions: (result.documents || []).map((d) => decodeTransaction(d.fields)),
+      transactions: result.documents.map((d) => decodeTransaction(d.fields)),
     };
   }
 }

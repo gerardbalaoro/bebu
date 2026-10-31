@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/no-unknown-parameters -- JSON output serializes validated results from every command without interpreting their fields. */
 import { readFile } from "node:fs/promises";
 
 import { defineFlag } from "@crustjs/core";
@@ -8,8 +9,8 @@ export const compactFlag = defineFlag("compact", {
   type: "boolean",
 });
 
-export const print = <T>(stdout: (value: string) => void, value: T, compact?: boolean): void => {
-  stdout(JSON.stringify(value, null, compact ? 0 : 2));
+export const print = (stdout: (value: string) => void, value: unknown, compact?: boolean): void => {
+  stdout(JSON.stringify(value, null, compact === true ? 0 : 2));
 };
 
 export const payload = async <T>(path: string, schema: z.ZodType<T>): Promise<T> => {

@@ -85,7 +85,7 @@ const writeOptions = (flags: { "dry-run"?: boolean; "request-id"?: string }): Co
 });
 
 const writeResult = (result: CommitResult, full?: boolean) => {
-  if (!("dryRun" in result) || full) {
+  if (!("dryRun" in result) || full === true) {
     return result;
   }
 
@@ -94,7 +94,7 @@ const writeResult = (result: CommitResult, full?: boolean) => {
     affected: result.body.writes.map((write) => ({
       document: (write.update?.name ?? write.delete)?.split("/documents/")[1],
       fields: write.updateMask?.fieldPaths,
-      operation: write.delete ? "delete" : "update",
+      operation: write.delete !== undefined && write.delete !== "" ? "delete" : "update",
       transforms: write.updateTransforms?.map((transform) => transform.fieldPath),
     })),
     body: undefined,
@@ -139,7 +139,7 @@ const accountsCommand = defineCommand(
               const rows = await new AccountService(await clientFor(flags.budget)).list();
               print(
                 stdout,
-                flags.full
+                flags.full === true
                   ? rows
                   : rows.map((row) =>
                       pick(row, [
@@ -237,24 +237,25 @@ const transactionsCommand = defineCommand(
                   pageToken: flags["page-token"],
                 });
 
-                const rows = flags.full
-                  ? result.transactions
-                  : result.transactions.map((transaction) => ({
-                      ...pick(transaction, [
-                        "id",
-                        "type",
-                        "amount",
-                        "completed",
-                        "cleared",
-                        "dueAt",
-                        "frequency",
-                        "notes",
-                        "repeatCount",
-                        "sequenceCount",
-                      ]),
-                      fromId: transaction.targetFrom?.id,
-                      toId: transaction.targetTo?.id,
-                    }));
+                const rows =
+                  flags.full === true
+                    ? result.transactions
+                    : result.transactions.map((transaction) => ({
+                        ...pick(transaction, [
+                          "id",
+                          "type",
+                          "amount",
+                          "completed",
+                          "cleared",
+                          "dueAt",
+                          "frequency",
+                          "notes",
+                          "repeatCount",
+                          "sequenceCount",
+                        ]),
+                        fromId: transaction.targetFrom?.id,
+                        toId: transaction.targetTo?.id,
+                      }));
 
                 print(stdout, { ...result, transactions: rows }, flags.compact);
               })
@@ -507,7 +508,7 @@ const allocationsCommand = defineCommand(
                   type: "number",
                 }
               )
-              .action(async ({ flags, stdout }) =>
+              .action(async ({ flags, stdout }) => {
                 print(
                   stdout,
                   await allocationAverages(
@@ -516,8 +517,8 @@ const allocationsCommand = defineCommand(
                     flags.periods
                   ),
                   flags.compact
-                )
-              )
+                );
+              })
         )
       )
       .add(
@@ -552,7 +553,7 @@ const allocationsCommand = defineCommand(
                   type: "boolean",
                 }
               )
-              .action(async ({ flags, stdout }) =>
+              .action(async ({ flags, stdout }) => {
                 print(
                   stdout,
                   await allocationHistory(await clientFor(flags.budget), {
@@ -561,8 +562,8 @@ const allocationsCommand = defineCommand(
                     yearMonth: flags.month,
                   }),
                   flags.compact
-                )
-              )
+                );
+              })
         )
       )
       .add(
@@ -585,13 +586,13 @@ const allocationsCommand = defineCommand(
                 required: true,
                 type: "string",
               })
-              .action(async ({ flags, stdout }) =>
+              .action(async ({ flags, stdout }) => {
                 print(
                   stdout,
                   await allocationReport(await clientFor(flags.budget), flags.month),
                   flags.compact
-                )
-              )
+                );
+              })
         )
       )
 );
@@ -627,7 +628,7 @@ const targetsCommand = defineCommand(
                 type: "string",
               }
             )
-            .action(async ({ flags, stdout }) =>
+            .action(async ({ flags, stdout }) => {
               print(
                 stdout,
                 await categoryTargets(await clientFor(flags.budget), {
@@ -635,8 +636,8 @@ const targetsCommand = defineCommand(
                   yearMonth: flags.month,
                 }),
                 flags.compact
-              )
-            )
+              );
+            })
       )
     )
 );
@@ -688,7 +689,7 @@ export const createApp = (): AnyCrust => {
                 const rows = Object.values(stashResult.data.data.categories);
                 print(
                   stdout,
-                  flags.full
+                  flags.full === true
                     ? rows
                     : rows.map((row) => pick(row, ["id", "name", "type", "groupId", "archived"])),
                   flags.compact
@@ -717,7 +718,7 @@ export const createApp = (): AnyCrust => {
                   const rows = Object.values(stashResult1.data.data);
                   print(
                     stdout,
-                    flags.full
+                    flags.full === true
                       ? rows
                       : rows.map((row) =>
                           pick(row, ["id", "name", "transactionCount", "archived"])

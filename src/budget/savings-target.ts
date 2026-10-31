@@ -8,7 +8,7 @@ interface CalendarDate {
   day: number;
 }
 
-const money = z.number().int().safe();
+const money = z.number().int();
 const nonnegative = (value: bigint) => (value > 0n ? value : 0n);
 
 const localDate = (timestamp: string, timezone: string): CalendarDate => {
@@ -62,7 +62,7 @@ export const savingsTargetDemand = (input: TargetDemandInput): number => {
     })
     .parse(category.target);
 
-  if (!input.calculationTimezone) {
+  if (input.calculationTimezone === undefined || input.calculationTimezone === "") {
     throw new Error(
       "Savings preview requires --calculation-timezone matching the native app device timezone"
     );
