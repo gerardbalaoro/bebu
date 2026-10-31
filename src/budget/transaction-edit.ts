@@ -17,7 +17,7 @@ export const editTransaction = async (
   const after: Transaction = { ...transaction, ...fields };
 
   if (amountMinor !== undefined) {
-    after.amount = transaction.type === "INFLOW" ? amountMinor : -amountMinor;
+    after.amount = Math.sign(transaction.amount) * amountMinor;
   }
 
   if (accountId !== undefined) {

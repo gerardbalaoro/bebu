@@ -163,11 +163,17 @@ const normalizeSchedule = (before: Transaction, after: Transaction, input: Trans
   }
 };
 
-const editOccurrence = (
-  before: Transaction,
-  after: Transaction,
-  scope: TransactionPatch["recurrenceScope"]
-) => {
+const seriesAmount = (before: Transaction) => {
+  const occurrence = before.occurrenceChange;
+
+  return occurrence?.amount === before.amount &&
+    occurrence.seriesAmount !== null &&
+    Math.sign(occurrence.seriesAmount) === Math.sign(before.amount)
+    ? occurrence.seriesAmount
+    : before.amount;
+};
+
+const editOccurrence = (before: Transaction, after: Transaction, input: TransactionPatch) => {
   if (after.frequency === "ONE_OFF") {
     after.occurrenceChange = null;
 
@@ -186,21 +192,15 @@ const editOccurrence = (
   };
 
   const change = { ...occurrence };
+  const scope = input.recurrenceScope;
 
-  if (before.amount !== after.amount) {
+  if (before.amount !== after.amount || input.amountMinor !== undefined) {
     change.amount = scope === "THIS_PAYMENT" ? after.amount : null;
 
-    const baseline =
-      occurrence.amount === before.amount &&
-      occurrence.seriesAmount !== null &&
-      Math.sign(occurrence.seriesAmount) === Math.sign(before.amount)
-        ? occurrence.seriesAmount
-        : before.amount;
-
-    change.seriesAmount = scope === "THIS_PAYMENT" ? baseline : null;
+    change.seriesAmount = scope === "THIS_PAYMENT" ? seriesAmount(before) : null;
   }
 
-  if (before.dueAt !== after.dueAt) {
+  if (before.dueAt !== after.dueAt || input.dueAt !== undefined) {
     change.dueAt = scope === "THIS_PAYMENT" ? after.dueAt : null;
 
     const baseline =
@@ -318,7 +318,7 @@ export const editSchedule = (
   }
 
   if (input.amountMinor !== undefined || scheduleChanged || input.recurrenceScope !== undefined) {
-    editOccurrence(before, after, input.recurrenceScope);
+    editOccurrence(before, after, input);
   }
 
   if (scheduleChanged) {

@@ -94,7 +94,7 @@ export const TransactionCreateSchema = z.strictObject({
   payeeId: ObjectIdSchema.optional(),
   tagIds: z.array(ObjectIdSchema).optional(),
   timezone: z.string().optional(),
-  type: z.enum(["OUTFLOW", "INFLOW"]).default("OUTFLOW"),
+  type: z.enum(["OUTFLOW", "INFLOW", "REFUND"]).default("OUTFLOW"),
 });
 
 export const TransactionPatchSchema = z

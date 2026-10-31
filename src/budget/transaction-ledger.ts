@@ -4,24 +4,24 @@ import type { Target, Transaction } from "./transaction-model.ts";
 import { makeTarget } from "./transaction-target.ts";
 import type { MutationPlan, TransactionContext } from "./transactions.ts";
 
-// Native inflow history (51731) selects the due-date month in the runtime system timezone.
-// Reject disagreement with the stored month instead of moving money between guessed history keys.
-const incomeHistoryMonth = (transaction: Transaction): string => {
+// Native shared history writer 51717 selects the due-date month in the runtime system timezone.
+const historyMonth = (transaction: Transaction): string => {
   const parts = new Intl.DateTimeFormat("en-US", {
     month: "2-digit",
     year: "numeric",
   }).formatToParts(new Date(transaction.dueAt));
 
   const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const month = `${fields.year}-${fields.month}`;
 
-  if (month !== transaction.yearMonth) {
+  return `${fields.year}-${fields.month}`;
+};
+
+const requireIncomeHistoryMonth = (transaction: Transaction): void => {
+  if (historyMonth(transaction) !== transaction.yearMonth) {
     throw new Error(
       "Income history month differs from the runtime due-date month. Resolve it in the app"
     );
   }
-
-  return month;
 };
 
 const requireTarget = (target: Target | null): Target => {
@@ -65,7 +65,25 @@ const requireLedgerTargets = (transaction: Transaction, context: TransactionCont
       throw new Error("The expense is missing a category target");
     }
 
-    makeTarget(category.id, "category", context.accountMap, context.categoryMap);
+    const currentCategory = makeTarget(
+      category.id,
+      "category",
+      context.accountMap,
+      context.categoryMap
+    );
+
+    if (
+      currentCategory.linkedObjectId !== category.linkedObjectId ||
+      currentCategory.linkedObjectType !== category.linkedObjectType
+    ) {
+      throw new Error(
+        "The saved expense category has linked-account effects. Resolve them in the app"
+      );
+    }
+
+    if (transaction.subType === "REFUND" && account.type !== "CREDIT_CARD") {
+      throw new Error("REFUND requires a credit-card account and an expense category");
+    }
   }
 
   const currency = context.accountMap[account.id]?.currencyCode;
@@ -98,15 +116,9 @@ export const applyTransactionLedger = async (
   const entryResult = await plan.entry(periodPath);
   PeriodSchema.parse(entryResult.doc.data);
 
-  const available = (id: string) =>
-    ["allocatedAmount", "carriedOverAmount", "otherAmount"].reduce(
-      (total, field) =>
-        total + BigInt(plan.amountChange(periodPath, ["balances", id, field])?.after ?? 0),
-      0n
-    ) - BigInt(plan.amountChange(periodPath, ["balances", id, "spentAmount"])?.after ?? 0);
+  const delta =
+    direction * (transaction.type === "OUTFLOW" ? -transaction.amount : transaction.amount);
 
-  const amount = Math.abs(transaction.amount);
-  const delta = direction * amount;
   const accountPath = context.accounts.name;
 
   const periodInc = async (id: string, key: string, change: number) => {
@@ -120,27 +132,23 @@ export const applyTransactionLedger = async (
   const history = async (id: string, key: string, change: number) => {
     await plan.increment(
       `${plan.client.budgetPath}/stashes/${id}`,
-      ["data", key, transaction.yearMonth],
+      ["data", key, historyMonth(transaction)],
       change
     );
   };
 
   const accountEffects = async (account: Target, n: number) => {
-    if (transaction.type === "INFLOW" && !transaction.cleared) {
+    if (!transaction.cleared) {
       await plan.increment(accountPath, ["data", account.id, "unclearedBalanceAmount"], n);
 
       return;
     }
 
     if (transaction.type === "INFLOW") {
-      incomeHistoryMonth(transaction);
+      requireIncomeHistoryMonth(transaction);
     }
 
     await balance(account, n);
-
-    if (!transaction.cleared) {
-      await plan.increment(accountPath, ["data", account.id, "unclearedBalanceAmount"], n);
-    }
 
     await history(account.id, "historicalBalances", n);
   };
@@ -155,18 +163,8 @@ export const applyTransactionLedger = async (
           throw new Error("Credit card has no linked payment category");
         }
 
-        if (direction > 0 && available(to.id) < BigInt(amount)) {
-          throw new Error(
-            "Fund the expense category first. bebu does not allocate funds automatically"
-          );
-        }
-
-        if (direction < 0 && available(to.id) < 0n) {
-          throw new Error(
-            "bebu cannot reverse unfunded card spending. The reversal requires changes to fund allocation"
-          );
-        }
-
+        // Native 51758 records the full charge in otherAmount, including unfunded spending.
+        // It does not allocate category funds or cap the reserve increment at available funds.
         await periodInc(from.linkedObjectId, "otherAmount", delta);
       }
 
@@ -189,10 +187,13 @@ export const applyTransactionLedger = async (
     for (const id of [transaction.payee?.id, ...transaction.tagIds].filter(
       (candidate): candidate is string => typeof candidate === "string"
     )) {
-      await history(id, "historicalBalances", direction * transaction.amount);
+      if (transaction.cleared) {
+        await history(id, "historicalBalances", direction * transaction.amount);
+      }
 
       if (transaction.type === "OUTFLOW") {
-        await history(id, "historicalSpending", -direction * transaction.amount);
+        // Native 51721 passes abs=true for payees/tags, including refunds.
+        await history(id, "historicalSpending", direction * Math.abs(transaction.amount));
       }
     }
   }

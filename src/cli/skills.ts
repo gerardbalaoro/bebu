@@ -79,8 +79,14 @@ Cleared, completed income increases allocation resources in a zero-based budget.
 Income history requires agreement between its stored month and its due-date month in the CLI runtime timezone.
 Native income allocation, linked-account allocation, and bulk allocation are separate workflows. Their availability depends on the native app and its settings.
 
-A completed CLI card expense needs sufficient category funds and increases the linked payment category's otherAmount.
-This payment reserve effect does not enable automatic allocation.
+A completed CLI card expense can overspend its category and increases the linked payment category's otherAmount by the full amount.
+Use transactions create with type REFUND, positive amountMinor, a credit-card accountId, and an expense categoryId for a refund.
+A refund reduces card debt, category spending, and the linked payment reserve. It is stored as a positive OUTFLOW with subtype REFUND.
+Expense categories linked to other accounts still require the native app.
+These effects do not allocate category funds. Historical dueAt timestamps remain intact; the saved period must exist.
+An uncleared expense or refund changes only the uncleared account balance. Clearing moves it into the cleared balance and account history.
+Category spending and reserve effects apply regardless of clearing. History months use the CLI runtime timezone.
+Category refund spending history decreases; payee/tag spending history uses the absolute amount, matching the native app.
 
 ## Preview and retry
 
@@ -94,7 +100,8 @@ Use recurrenceScope THIS_PAYMENT for one upcoming amount/date override; THIS_AND
 Existing generated occurrences require separate edits. The update command does not complete payments or generate occurrences.
 Read transactions update before editing a schedule. The CLI handles workday shifts, repeat limits, and month-end anchors.
 
-Transactions with confirmed or possible native allocation effects reject deletion, financial edits, and schedule edits.
+Transactions with active native allocation predicates, allocation history, or autoAllocated extras reject deletion, financial edits, and schedule edits.
+Inactive allocation flags alone do not block edits. Recurring clone links remain intact; updates never rewrite another occurrence.
 Notes, color, sentiment, location, and reminder metadata remain editable within the command's other restrictions. Do not remove allocation flags or history to bypass a rejection.
 
 For an identical retry, reuse the request ID and original payload. For a different operation, use a new request ID.

@@ -26,8 +26,8 @@ Reallocation, undo, automatic income allocation, and smart allocation writes rem
 
 Transaction dry runs show account balances, category funds, payment reserves, and allocation
 resources. Cleared, completed zero-based income increases allocation resources but does not fund
-categories. Transactions with possible native allocation effects reject deletion, financial edits,
-and schedule edits.
+categories. Active native allocation predicates, allocation history, and autoAllocated extras block
+deletion, financial edits, and schedule edits. Inactive allocation flags alone do not block edits.
 
 Uncleared income changes only the uncleared account balance. Clearing moves the amount into the
 cleared balance and account history. Unclearing reverses those movements. Income history requires
@@ -51,7 +51,11 @@ workflows.
 
 Category availability equals `allocatedAmount + carriedOverAmount + otherAmount - spentAmount`.
 Upcoming obligations, target progress, and the budget's unallocated money are separate amounts. A
-funded card purchase reduces expense-category funds and increases the payment category's reserve.
+card purchase reduces expense-category funds and increases the payment category's raw reserve by the
+full amount, even when unfunded. [Card Purchases And Refunds](card-transactions.md) records the
+signed ledger and history effects. Use create type `REFUND` with a positive amount and expense
+category to reverse those movements. Historical purchase dates remain intact and do not require
+historical allocation support.
 
 Canonical transactions contain more history than trimmed stash previews or browser caches.
 Transaction writes also maintain indexes, counters, and historical amounts. The canonical document

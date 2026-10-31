@@ -27,6 +27,7 @@ const transactionDetails = (transaction: Transaction | null) =>
     repeatCount: transaction.repeatCount,
     sentiment: transaction.sentiment,
     sequenceCount: transaction.sequenceCount,
+    subType: transaction.subType,
     tagIds: transaction.tagIds,
     targetFrom: transaction.targetFrom,
     targetTo: transaction.targetTo,

@@ -16,6 +16,10 @@ const categoryTarget = (id: string, categories: Record<string, Category>): Targe
     throw new Error("Card payments require a transfer. Special categories cannot receive expenses");
   }
 
+  if ((category.linkedAccountIds?.length ?? 0) > 0) {
+    throw new Error("Expense categories linked to accounts require the native linked-account flow");
+  }
+
   return { id, linkedObjectId: null, linkedObjectType: null, type: "CATEGORY" };
 };
 

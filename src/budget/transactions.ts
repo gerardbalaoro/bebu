@@ -171,7 +171,7 @@ export class MutationPlan {
   }
 }
 
-const supported = (transaction: Transaction): void => {
+const supported = (transaction: Transaction, allowClone = false): void => {
   if (!["OUTFLOW", "INFLOW"].includes(transaction.type)) {
     throw new Error(
       `bebu changes only expenses and income. The ${transaction.type} type requires a separate ledger flow`
@@ -181,8 +181,13 @@ const supported = (transaction: Transaction): void => {
   if (
     Boolean(transaction.splitId) ||
     Boolean(transaction.siblingTransactionId) ||
-    Boolean(transaction.clonedToTransactionId) ||
-    Boolean(transaction.subType) ||
+    (Boolean(transaction.clonedToTransactionId) && !allowClone) ||
+    (Boolean(transaction.subType) &&
+      !(
+        transaction.type === "OUTFLOW" &&
+        transaction.subType === "REFUND" &&
+        transaction.amount > 0
+      )) ||
     transaction.extraTarget ||
     Object.keys(transaction.extras).length ||
     transaction.files?.length
@@ -190,6 +195,12 @@ const supported = (transaction: Transaction): void => {
     throw new Error(
       "The transaction has links, splits, files, or extra behavior that bebu does not support"
     );
+  }
+
+  const positiveAmount = transaction.type === "INFLOW" || transaction.subType === "REFUND";
+
+  if (positiveAmount ? transaction.amount <= 0 : transaction.amount >= 0) {
+    throw new Error("The stored transaction amount has an unexpected sign. Resolve it in the app");
   }
 
   if (transaction.reconciled) {
@@ -277,25 +288,27 @@ export class TransactionService {
       );
     }
 
-    const { type } = input;
+    const refund = input.type === "REFUND";
+    const type = refund ? "OUTFLOW" : input.type;
     let targetFrom: Target | null = null;
     let targetTo: Target | null = null;
 
     if (type === "OUTFLOW") {
+      if (input.categoryId === undefined) {
+        throw new Error("An expense or refund requires categoryId");
+      }
+
       targetFrom = makeTarget(input.accountId, "account", context.accountMap, context.categoryMap);
-      targetTo = makeTarget(
-        input.categoryId ?? "",
-        "category",
-        context.accountMap,
-        context.categoryMap
-      );
+      targetTo = makeTarget(input.categoryId, "category", context.accountMap, context.categoryMap);
+
+      if (refund && targetFrom.type !== "CREDIT_CARD") {
+        throw new Error("REFUND requires a credit-card account and an expense category");
+      }
     } else if (type === "INFLOW") {
       targetTo = makeTarget(input.accountId, "account", context.accountMap, context.categoryMap);
 
       if (targetTo.type === "CREDIT_CARD") {
-        throw new Error(
-          "bebu does not support credit card refunds. Refunds require a separate ledger flow"
-        );
+        throw new Error("Use type REFUND with an expense category to record a credit-card refund");
       }
     } else {
       throw new Error("Use OUTFLOW or INFLOW to create a transaction");
@@ -360,7 +373,7 @@ export class TransactionService {
     }
 
     const transaction: Transaction = {
-      amount: type === "INFLOW" ? input.amountMinor : -input.amountMinor,
+      amount: type === "INFLOW" || refund ? input.amountMinor : -input.amountMinor,
       autoAllocateIfCapable: false,
       autoAllocateIfIncome: false,
       budgetId: this.client.budgetId,
@@ -402,7 +415,7 @@ export class TransactionService {
       sequenceCount: null,
       siblingTransactionId: null,
       splitId: null,
-      subType: null,
+      subType: refund ? "REFUND" : null,
       tagIds,
       targetFrom,
       targetTo,
@@ -574,19 +587,15 @@ export class TransactionService {
 
     if (financial) {
       requireIndependentTransaction(transaction, context.budget.data);
-      supported(transaction);
-
-      if (
-        (transaction.type === "OUTFLOW" && transaction.amount >= 0) ||
-        (transaction.type === "INFLOW" && transaction.amount <= 0)
-      ) {
-        throw new Error(
-          "The stored transaction amount has an unexpected sign. Resolve it in the app"
-        );
-      }
+      supported(transaction, transaction.frequency !== "ONE_OFF");
     }
 
     const after = await editTransaction(this.client, transaction, changes, context);
+
+    if (financial) {
+      requireIndependentTransaction(after, context.budget.data);
+      supported(after, transaction.frequency !== "ONE_OFF");
+    }
 
     const ledgerFields = [
       "amount",

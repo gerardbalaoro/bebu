@@ -5,9 +5,10 @@ Edit transaction amounts, details, dates, and upcoming recurrence rules
 ## Editable fields
 
 Use schema for the complete transactionUpdate payload. amountMinor is a positive integer; the CLI
-preserves the expense or income sign. Editable fields include accountId, categoryId, payeeId (null
-removes it), tagIds ([] removes all), dueAt, timezone, notes, color, cleared, sentiment, location,
-and reminder details. Balances, history, indexes, and usage counts change atomically.
+preserves the purchase, refund, or income sign. Editable fields include accountId, categoryId,
+payeeId (null removes it), tagIds ([] removes all), dueAt, timezone, notes, color, cleared,
+sentiment, location, and reminder details. Balances, history, indexes, and usage counts change
+atomically.
 
 ## Recurring payments
 
@@ -17,8 +18,9 @@ Changing frequency resets sequenceCount to 1 and repeatCount to unlimited unless
 supplied.
 
 For an upcoming recurring amount or date edit, recurrenceScope selects THIS_PAYMENT or
-THIS_AND_LATER (default). THIS_PAYMENT preserves the series baseline for later payments. Only the
-selected canonical entry changes; already-created occurrences require separate edits.
+THIS_AND_LATER (default). THIS_PAYMENT preserves the series baseline for later payments.
+Resubmitting the current amount or date with THIS_AND_LATER also replaces its future baseline. Only
+the selected canonical entry changes; already-created occurrences require separate edits.
 
 dueAt accepts an ISO timestamp with an explicit offset. The CLI keeps its time of day and calculates
 dates in the stored transaction timezone, or the supplied timezone. Weekend policies adjust future
@@ -28,11 +30,14 @@ generate occurrences.
 
 ## Restrictions
 
-Financial and schedule edits support editable, unreconciled expenses and income without splits,
-files, cloned links, refunds, or native allocation effects. Account and category links must agree.
-Foreign-currency ledgers require the app. Completed entries cannot change recurrence rules or move
-to future dates. A completed entry needs an existing destination budget period. Notes, color,
-sentiment, location, and reminder metadata remain editable within the record's other restrictions.
+Financial and schedule edits support editable, unreconciled expenses, card refunds, and income
+without splits, files, or active native allocation effects. Recurring clone links and inactive
+allocation flags are preserved. Actual linked-allocation predicates, allocation history, and
+autoAllocated extras remain guarded. Account and category links must agree. Expense categories
+linked to other accounts require the native app. Foreign-currency ledgers require the app. Completed
+entries cannot change recurrence rules or move to future dates. A completed entry needs an existing
+destination budget period. Notes, color, sentiment, location, and reminder metadata remain editable
+within the record's other restrictions.
 
 Inspect --dry-run before committing. The summary includes old and new accounts, category funds,
 monthly obligations, and allocation resources. Add --full for exact writes and version

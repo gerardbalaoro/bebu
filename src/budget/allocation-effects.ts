@@ -1,9 +1,27 @@
 import { z } from "zod";
 
 import type { Data } from "../firestore/encoding.ts";
-import type { Transaction } from "./transaction-model.ts";
+import type { Target, Transaction } from "./transaction-model.ts";
 
 const historySchema = z.record(z.string(), z.looseObject({ id: z.string().optional() }));
+
+const hasLinkedAllocation = (transaction: Transaction, target: Target | null): boolean => {
+  if (transaction.targetFrom?.linkedObjectId === transaction.targetTo?.linkedObjectId) {
+    return false;
+  }
+
+  // Native 51847–51849 requires every condition; the capability flag alone has no ledger effect.
+  return (
+    transaction.completed &&
+    transaction.cleared &&
+    transaction.autoAllocateIfCapable &&
+    transaction.version !== null &&
+    target?.type === "GENERIC_ACCOUNT" &&
+    target.linkedObjectType === "CATEGORY" &&
+    target.linkedObjectId !== null &&
+    target.linkedObjectId.trim() !== ""
+  );
+};
 
 export const requireIndependentTransaction = (transaction: Transaction, budget: Data): void => {
   const history = historySchema.parse(
@@ -14,13 +32,20 @@ export const requireIndependentTransaction = (transaction: Transaction, budget: 
     ([key, entry]) => key === transaction.id || entry.id === transaction.id
   );
 
-  // Native linked income can have empty extras. Flags indicate possible effects, not proof of them.
-  // Keep financial edits separate from notes/color until native reversal and clearing rules are known.
+  // Native 51742 has a separate completed/cleared income path requiring an actual extra target.
+  const hasIncomeAllocation =
+    transaction.type === "INFLOW" &&
+    transaction.completed &&
+    transaction.cleared &&
+    transaction.autoAllocateIfIncome === true &&
+    transaction.extraTarget !== null;
+
   const allocationPossible =
     hasHistory ||
     Boolean(transaction.extras.autoAllocated) ||
-    transaction.autoAllocateIfCapable ||
-    (transaction.type === "INFLOW" && transaction.autoAllocateIfIncome === true);
+    hasLinkedAllocation(transaction, transaction.targetFrom) ||
+    hasLinkedAllocation(transaction, transaction.targetTo) ||
+    hasIncomeAllocation;
 
   if (allocationPossible) {
     throw new Error(
