@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -100,8 +100,16 @@ Use recurrenceScope THIS_PAYMENT for one upcoming amount/date override; THIS_AND
 Existing generated occurrences require separate edits. The update command does not complete payments or generate occurrences.
 Read transactions update before editing a schedule. The CLI handles workday shifts, repeat limits, and month-end anchors.
 
+Use transactions delete --scope THIS_PAYMENT to delete one occurrence and preserve its already-generated remaining series.
+An ongoing tail without a generated successor cannot use THIS_PAYMENT; the CLI cannot generate a replacement.
+A finite tail whose repeat limit is exhausted can use THIS_PAYMENT.
+Use --scope THIS_AND_LATER to delete the selected occurrence and its verified forward clone chain.
+Earlier history remains intact. The CLI follows validated transaction links; a shared eventId does not identify a deletion chain.
+Earlier nonempty clone links remain unchanged, even if their child is deleted. Do not clear these links.
+Inspect the dry run's deletedTransactions, preservedTransactions, and ledger effects before committing.
+
 Transactions with active native allocation predicates, allocation history, or autoAllocated extras reject deletion, financial edits, and schedule edits.
-Inactive allocation flags alone do not block edits. Recurring clone links remain intact; updates never rewrite another occurrence.
+Inactive allocation flags alone do not block supported edits or deletion. Updates preserve recurring clone links and never rewrite another occurrence.
 Notes, color, sentiment, location, and reminder metadata remain editable within the command's other restrictions. Do not remove allocation flags or history to bypass a rejection.
 
 For an identical retry, reuse the request ID and original payload. For a different operation, use a new request ID.
@@ -113,6 +121,93 @@ A retry can fail before marker lookup, including after deletion. After marker ex
 ## Command reference
 
 `;
+
+const isUnlinkedPath = async (workspace: string, destination: string) => {
+  let current = workspace;
+
+  const paths = nodePath
+    .relative(workspace, destination)
+    .split(nodePath.sep)
+    .map((component) => {
+      current = nodePath.join(current, component);
+
+      return current;
+    });
+
+  const checks = await Promise.all(
+    paths.map(async (path) => {
+      try {
+        const entry = await lstat(path);
+
+        return !entry.isSymbolicLink();
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+          return true;
+        }
+
+        throw error;
+      }
+    })
+  );
+
+  return checks.every(Boolean);
+};
+
+const refreshLocalSkills = async (outDir: string, files: readonly string[]) => {
+  const workspace = process.cwd();
+  const destination = nodePath.join(workspace, ".agents", "skills", "bebu");
+  let lock;
+
+  try {
+    lock = z
+      .object({
+        skills: z.object({
+          bebu: z.object({ source: z.string(), sourceType: z.literal("local") }),
+        }),
+      })
+      .safeParse(JSON.parse(await readFile(nodePath.join(workspace, "skills-lock.json"), "utf-8")));
+  } catch (error) {
+    if (
+      error instanceof SyntaxError ||
+      (error instanceof Error && "code" in error && error.code === "ENOENT")
+    ) {
+      return;
+    }
+
+    throw error;
+  }
+
+  if (!lock.success || nodePath.resolve(workspace, lock.data.skills.bebu.source) !== outDir) {
+    return;
+  }
+
+  try {
+    const entry = await lstat(destination);
+
+    if (!entry.isDirectory() || !(await isUnlinkedPath(workspace, destination))) {
+      return;
+    }
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return;
+    }
+
+    throw error;
+  }
+
+  // Refresh generated references only. The installer owns lock metadata and explicit installations.
+  await Promise.all(
+    files.map(async (file) => {
+      const relative = nodePath.relative("bebu", file);
+      const target = nodePath.join(destination, relative);
+
+      if (await isUnlinkedPath(workspace, target)) {
+        await mkdir(nodePath.dirname(target), { recursive: true });
+        await writeFile(target, await readFile(nodePath.join(outDir, file)));
+      }
+    })
+  );
+};
 
 export const generateSkills = async (app: AnyCrust, output = "skills") => {
   const outDir = nodePath.resolve(output);
@@ -156,7 +251,10 @@ export const generateSkills = async (app: AnyCrust, output = "skills") => {
   await mkdir(nodePath.dirname(metadataPath), { recursive: true });
   await writeFile(metadataPath, openaiMetadata);
 
-  return { files: [...files, metadataFile], outDir };
+  const generatedFiles = [...files, metadataFile];
+  await refreshLocalSkills(outDir, generatedFiles);
+
+  return { files: generatedFiles, outDir };
 };
 
 export const installSkills = async (
@@ -226,7 +324,10 @@ export const createSkillsCommand = (getApp: () => AnyCrust) => {
         .add(
           defineCommand(
             "generate",
-            { description: "Generate the bebu skill and command reference" },
+            {
+              description:
+                "Generate references and refresh an existing managed local bebu skill copy",
+            },
             (leaf) =>
               leaf
                 .flags({

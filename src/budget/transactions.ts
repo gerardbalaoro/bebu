@@ -11,10 +11,12 @@ import type {
   FirestoreDocument,
   Write,
 } from "../firestore/encoding.ts";
+import { FirestoreTransaction } from "../firestore/transaction.ts";
 import { AccountsSchema } from "./accounts.ts";
 import { requireIndependentTransaction } from "./allocation-effects.ts";
 import { LabelsSchema } from "./labels.ts";
 import { CategoriesSchema } from "./model.ts";
+import { planRecurringDeletion, removeTransactionReminder } from "./transaction-delete.ts";
 import { editTransaction } from "./transaction-edit.ts";
 import {
   transactionIndexPaths,
@@ -27,6 +29,7 @@ import {
   ObjectIdSchema,
   QueryRowsSchema,
   TransactionCreateSchema,
+  TransactionDeleteSchema,
   TransactionPatchSchema,
   TransactionSchema,
   UserSchema,
@@ -36,12 +39,16 @@ import type {
   Target,
   Transaction,
   TransactionCreate,
+  TransactionDeleteOptions,
   TransactionPatch,
 } from "./transaction-model.ts";
-import { transactionSummary } from "./transaction-summary.ts";
+import { transactionDetails, transactionSummary } from "./transaction-summary.ts";
 import { makeTarget } from "./transaction-target.ts";
 
 export type TransactionContext = Awaited<ReturnType<TransactionService["context"]>>;
+
+const MaxDeletionWrites = 499;
+const MaxDeletionBytes = 8_000_000;
 
 const requireId = (id: string): string => ObjectIdSchema.parse(id);
 
@@ -70,9 +77,11 @@ export class MutationPlan {
   private readonly docs = new Map<string, PlanEntry>();
   readonly extra: Write[] = [];
   readonly client: BeyondClient;
+  readonly snapshot?: FirestoreTransaction;
 
-  constructor(client: BeyondClient) {
+  constructor(client: BeyondClient, snapshot?: FirestoreTransaction) {
     this.client = client;
+    this.snapshot = snapshot;
   }
   async entry(name: string): Promise<PlanEntry> {
     const existing = this.docs.get(name);
@@ -83,7 +92,7 @@ export class MutationPlan {
 
     const entry = {
       changes: new Map<string, FieldChange>(),
-      doc: await this.client.document(name),
+      doc: await (this.snapshot ?? this.client).document(name),
       increments: new Map<string, number>(),
     };
 
@@ -222,13 +231,20 @@ export class TransactionService {
   constructor(client: BeyondClient) {
     this.client = client;
   }
-  async context() {
-    const budget = await this.client.discover();
+  async context(snapshot?: FirestoreTransaction) {
+    const budget = await this.client.discover(snapshot);
+    const reader = snapshot ?? this.client;
 
     const [accounts, categories, user] = await Promise.all([
-      this.client.stash("ACCOUNTS", AccountsSchema),
-      this.client.stash("GROUPS_AND_CATEGORIES", CategoriesSchema),
-      this.client.document(
+      reader.document(
+        `${this.client.budgetPath}/stashes/${this.client.stashId("ACCOUNTS")}`,
+        AccountsSchema
+      ),
+      reader.document(
+        `${this.client.budgetPath}/stashes/${this.client.stashId("GROUPS_AND_CATEGORIES")}`,
+        CategoriesSchema
+      ),
+      reader.document(
         `projects/beyond-budget/databases/(default)/documents/users/${this.client.session.uid}`,
         UserSchema
       ),
@@ -446,19 +462,22 @@ export class TransactionService {
 
     return { ...result, automaticAllocation: false, summary, transactionId: id };
   }
-  async apply(
+  private async apply(
     plan: MutationPlan,
     transaction: Transaction,
     direction: 1 | -1,
     context: TransactionContext
   ) {
-    supported(transaction);
+    supported(transaction, direction < 0);
 
-    if (transaction.frequency !== "ONE_OFF") {
-      throw new Error("Creating or deleting a recurring transaction requires the native app");
+    if (direction > 0 && transaction.frequency !== "ONE_OFF") {
+      throw new Error("Creating a recurring transaction requires the native app");
     }
 
-    if (transaction.periodId === undefined || transaction.periodId === null) {
+    if (
+      transaction.completed &&
+      (transaction.periodId === undefined || transaction.periodId === null)
+    ) {
       throw new Error("The transaction has no budget period. Select its month in the app");
     }
 
@@ -486,15 +505,13 @@ export class TransactionService {
 
       const hasPreview = Boolean(get(entry.doc.data, ["data", bucket, transaction.id]));
 
-      if (direction < 0 && !hasPreview) {
-        continue;
+      if (direction > 0 || hasPreview) {
+        await plan.set(
+          path,
+          ["data", bucket, transaction.id],
+          direction > 0 ? transactionPreview(transaction) : undefined
+        );
       }
-
-      await plan.set(
-        path,
-        ["data", bucket, transaction.id],
-        direction > 0 ? transactionPreview(transaction) : undefined
-      );
 
       if (
         transaction.completed &&
@@ -536,10 +553,23 @@ export class TransactionService {
       );
     }
   }
-  async delete(id: string, options: CommitOptions = {}) {
+  async delete(id: string, options: TransactionDeleteOptions = {}) {
+    const { scope } = TransactionDeleteSchema.parse(options);
+
+    if (scope !== undefined) {
+      return await this.deleteScoped(id, options);
+    }
+
     const context = await this.context();
     const doc = await this.transaction(id);
     const transaction = doc.data;
+
+    if (transaction.frequency !== "ONE_OFF" || Boolean(transaction.clonedToTransactionId)) {
+      throw new Error(
+        "Recurring deletion requires an explicit scope: THIS_PAYMENT or THIS_AND_LATER"
+      );
+    }
+
     requireIndependentTransaction(transaction, context.budget.data);
     supported(transaction);
     const plan = new MutationPlan(this.client);
@@ -556,6 +586,76 @@ export class TransactionService {
       summary,
       transactionId: id,
     };
+  }
+
+  private async deleteScoped(id: string, options: TransactionDeleteOptions) {
+    requireId(id);
+
+    const snapshot = await FirestoreTransaction.begin(
+      this.client,
+      options.dryRun === true ? "read" : "write"
+    );
+
+    try {
+      const context = await this.context(snapshot);
+      const plan = new MutationPlan(this.client, snapshot);
+      const selection = await planRecurringDeletion(plan, id, options.scope ?? "THIS_PAYMENT");
+
+      for (const transaction of selection.deleted) {
+        requireIndependentTransaction(transaction, context.budget.data);
+        supported(transaction, true);
+
+        if (!transaction.editable) {
+          throw new Error("bebu deletes only editable, unreconciled transactions without splits");
+        }
+      }
+
+      for (const transaction of selection.deleted) {
+        const { doc } = await plan.entry(
+          `${this.client.budgetPath}/transactions/${transaction.id}`
+        );
+
+        plan.extra.push({ currentDocument: { updateTime: doc.updateTime }, delete: doc.name });
+        await this.apply(plan, transaction, -1, context);
+        await removeTransactionReminder(plan, transaction, context);
+      }
+
+      const writes = plan.writes();
+
+      // Leave room for the save marker in Firestore's bounded atomic write set.
+      if (
+        writes.length > MaxDeletionWrites ||
+        new TextEncoder().encode(JSON.stringify(writes)).length > MaxDeletionBytes
+      ) {
+        throw new Error("Deletion exceeds the atomic write limit. Select a shorter verified chain");
+      }
+
+      const summary =
+        options.dryRun === true
+          ? {
+              ...transactionSummary(plan, selection.deleted[0] ?? null, null, selection.deleted),
+              deletedTransactions: selection.deleted.map(transactionDetails),
+              deletionScope: options.scope,
+              preservedTransactions: selection.preserved.map(transactionDetails),
+            }
+          : undefined;
+
+      return {
+        ...(await this.client.commit(writes, options, snapshot)),
+        automaticAllocation: false,
+        deleted: true,
+        deletedTransactionIds: selection.deleted.map((transaction) => transaction.id),
+        scope: options.scope,
+        summary,
+        transactionId: id,
+      };
+    } finally {
+      try {
+        await snapshot.rollback();
+      } catch {
+        // Rollback cannot change a completed outcome or replace the original planning failure.
+      }
+    }
   }
   async update(id: string, input: TransactionPatch, options: CommitOptions = {}) {
     const changes = TransactionPatchSchema.parse(input);

@@ -25,7 +25,12 @@ import { categoryFunding } from "../budget/funding.ts";
 import { LabelsSchema } from "../budget/labels.ts";
 import { CategoriesSchema } from "../budget/model.ts";
 import { categoryTargets } from "../budget/targets.ts";
-import { TransactionCreateSchema, TransactionPatchSchema } from "../budget/transaction-model.ts";
+import {
+  TransactionCreateSchema,
+  TransactionPatchSchema,
+  TransactionDeleteScopeSchema,
+  TransactionDeleteSchema,
+} from "../budget/transaction-model.ts";
 import { TransactionService } from "../budget/transactions.ts";
 import { BeyondClient } from "../firestore/client.ts";
 import type { CommitOptions, CommitResult, Data } from "../firestore/encoding.ts";
@@ -342,16 +347,38 @@ const transactionsCommand = defineCommand(
         defineCommand(
           "delete",
           {
-            description: "Delete a supported transaction and reverse its ledger effects atomically",
+            description:
+              "Delete one occurrence or a verified recurring chain with atomic ledger reversal",
+            sections: [
+              {
+                body: "Recurring deletion requires --scope THIS_PAYMENT or --scope THIS_AND_LATER. THIS_PAYMENT deletes the selected occurrence and preserves already-generated successors. THIS_AND_LATER deletes the selected occurrence and every validated forward clone-linked occurrence, including completed entries and upcoming obligations. Earlier occurrences and their nonempty clone links remain unchanged. A one-off transaction defaults to a single deletion.\n\nExample: bebu transactions delete <id> --scope THIS_AND_LATER --dry-run. Inspect deletedTransactions, preservedTransactions, account balances, category funds, payment reserves, and allocation resources. Add --full for exact atomic writes and version preconditions.\n\nMembership follows canonical clonedToTransactionId links. eventId never selects records. Budget identity, consecutive sequence numbers, increasing dates, frequency, timezone, account/category targets, payee, notes, type, and subtype must agree at each boundary. A broken link, cycle, branch, incompatible boundary, missing dependency, or active allocation effect rejects the entire plan.",
+                title: "Deletion scopes",
+              },
+              {
+                body: "A live recurring tail without a generated successor cannot use THIS_PAYMENT unless its finite repeat limit is exhausted. The CLI cannot generate a replacement; use THIS_AND_LATER only when you intend to stop the series. Preserved predecessor clone links may point to a deleted record, matching native single-record deletion and preserving earlier completion classification. Do not clear these links.\n\nCompleted deletions reverse the saved account, spending, reserve, history, index, and counter effects. Upcoming deletions remove obligations and usage counts; periodless entries remain periodless. Supported reminder documents and index entries are removed in the same commit. Native allocation predicates, allocation history, autoAllocated extras, reconciliation, splits, files, foreign-currency ledgers, and unsupported linked-account flows remain guarded.\n\nThe CLI inspects at most 100 linked occurrences and rejects plans beyond its atomic write/size limits. Reads and predecessor queries use one Firestore snapshot; concurrent changes fail rather than trigger automatic retries. No event-based sweep, recurrence conversion, zero-amount rewrite, or synthetic successor occurs. Backend regeneration has not been established by the saved client artifact.",
+                title: "Limits and safety",
+              },
+            ],
           },
           (leaf) =>
             leaf
-              .flags(...writeFlags)
+              .flags(...writeFlags, {
+                description:
+                  "Delete THIS_PAYMENT or THIS_AND_LATER; required for recurring entries",
+                name: "scope",
+                type: "string",
+              })
               .args(idArg)
               .action(async ({ args, flags, stdout }) => {
                 const result = await new TransactionService(await clientFor(flags.budget)).delete(
                   args.id,
-                  writeOptions(flags)
+                  {
+                    ...writeOptions(flags),
+                    scope:
+                      flags.scope === undefined
+                        ? undefined
+                        : TransactionDeleteScopeSchema.parse(flags.scope),
+                  }
                 );
 
                 print(stdout, writeResult(result, flags.full), flags.compact);
@@ -661,7 +688,7 @@ export const createApp = (): AnyCrust => {
         title: "Browser session",
       },
       {
-        body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu creates and deletes one-off expenses, income, and card refunds (type REFUND with a positive amountMinor and expense categoryId). Updates also support existing upcoming recurring payments. Transfers, splits, debts, files, reconciliation, and active linked allocation effects require separate flows. For manual allocations, use allocations set --dry-run followed by allocations apply with the saved plan and an explicit request ID. Card purchases can overspend a category; the full purchase amount changes spending and the payment reserve without allocating funds. Refunds reverse those effects. Historical dates are retained.\n\nTransaction updates accept amounts, accounts, categories, payees, tags, dates, cleared status, and metadata. Upcoming entries also accept recurrence rules. Read transactions update --help for scope and restrictions. The --request-id flag identifies the atomic commit and its save marker.\n\nFor an identical retry, reuse --request-id and the original payload. For a different operation, use a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves marker existence only. Marker expiry and validation before the commit also limit retries.",
+        body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu creates and deletes one-off expenses, income, and card refunds (type REFUND with a positive amountMinor and expense categoryId). Updates also support existing upcoming recurring payments. Recurring deletion requires an explicit --scope; read transactions delete --help and inspect its dry run. Transfers, splits, debts, files, reconciliation, and active linked allocation effects require separate flows. For manual allocations, use allocations set --dry-run followed by allocations apply with the saved plan and an explicit request ID. Card purchases can overspend a category; the full purchase amount changes spending and the payment reserve without allocating funds. Refunds reverse those effects. Historical dates are retained.\n\nTransaction updates accept amounts, accounts, categories, payees, tags, dates, cleared status, and metadata. Upcoming entries also accept recurrence rules. Read transactions update --help for scope and restrictions. The --request-id flag identifies the atomic commit and its save marker.\n\nFor an identical retry, reuse --request-id and the original payload. For a different operation, use a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves marker existence only. Marker expiry and validation before the commit also limit retries.",
         title: "Write rules",
       },
     ],
@@ -745,6 +772,7 @@ export const createApp = (): AnyCrust => {
             {
               accountUpdate: z.toJSONSchema(AccountPatchSchema),
               transactionCreate: z.toJSONSchema(TransactionCreateSchema),
+              transactionDelete: z.toJSONSchema(TransactionDeleteSchema),
               transactionUpdate: z.toJSONSchema(TransactionPatchSchema),
             },
             flags.compact

@@ -6,8 +6,8 @@ Read history and edit expenses, income, and upcoming recurring payments
 
 - [`create`](transactions/create.md) - Create an expense, income, or card refund with all ledger
   changes and no automatic allocation
-- [`delete`](transactions/delete.md) - Delete a supported transaction and reverse its ledger effects
-  atomically
+- [`delete`](transactions/delete.md) - Delete one occurrence or a verified recurring chain with
+  atomic ledger reversal
 - [`list`](transactions/list.md) - Read the complete history, including older records absent from
   the app cache
 - [`show`](transactions/show.md) - Read a complete transaction record

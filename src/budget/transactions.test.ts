@@ -592,9 +592,11 @@ test("deleting a card expense reverses payment funding and skips previews absent
     { fieldPath: "data.card.balanceAmount", increment: { integerValue: "250" } },
     { fieldPath: "data.card.transactionCount", increment: { integerValue: "-1" } },
   ]);
-  expect(
-    writes.some((write) => write.update?.name === `${budgetPath}/stashes/transactionsIndex`)
-  ).toBe(false);
+  // Native 51713/51730 decrements completed counts even when the preview was trimmed.
+  expect(writeAt(writes, "stashes/transactionsIndex").updateTransforms).toEqual([
+    { fieldPath: "data.completedTransactionCount", increment: { integerValue: "-1" } },
+  ]);
+  expect(writeAt(writes, "stashes/transactionsIndex").updateMask?.fieldPaths).toEqual([]);
   expect(writeAt(writes, "stashes/card").updateMask?.fieldPaths).toContain(
     `data.completedTransactions.${transactionId}`
   );

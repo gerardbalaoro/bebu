@@ -1,6 +1,6 @@
 # `bebu skills generate`
 
-Generate the bebu skill and command reference
+Generate references and refresh an existing managed local bebu skill copy
 
 ## Usage
 

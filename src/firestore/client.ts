@@ -5,6 +5,7 @@ import { BudgetSchema } from "../budget/model.ts";
 import { DataSchema, DocumentRoot, newId, WireDocumentSchema, decode } from "./encoding.ts";
 import type { CommitOptions, CommitResult, FirestoreDocument, Write } from "./encoding.ts";
 import { FirestoreError } from "./error.ts";
+import type { FirestoreTransaction } from "./transaction.ts";
 
 export { FirestoreError } from "./error.ts";
 
@@ -123,8 +124,10 @@ export class BeyondClient {
     return await this.document(`${this.budgetPath}/stashes/${this.stashId(type)}`, schema);
   }
 
-  async discover(): Promise<FirestoreDocument<z.infer<typeof BudgetSchema>>> {
-    const budget = await this.document(this.budgetPath, BudgetSchema);
+  async discover(
+    snapshot?: FirestoreTransaction
+  ): Promise<FirestoreDocument<z.infer<typeof BudgetSchema>>> {
+    const budget = await (snapshot ?? this).document(this.budgetPath, BudgetSchema);
     const remaining = this.session.stashes.filter((entry) => entry.budgetId !== this.budgetId);
 
     for (const [type, id] of Object.entries(budget.data.stashIdentifiers)) {
@@ -136,7 +139,11 @@ export class BeyondClient {
     return budget;
   }
 
-  async commit(writes: Write[], options: CommitOptions = {}): Promise<CommitResult> {
+  async commit(
+    writes: Write[],
+    options: CommitOptions = {},
+    snapshot?: FirestoreTransaction
+  ): Promise<CommitResult> {
     const requestId = options.requestId ?? newId();
 
     if (!requestIdPattern.test(requestId)) {
@@ -178,10 +185,12 @@ export class BeyondClient {
 
     try {
       const response = z.object({ commitTime: z.string() }).parse(
-        await this.request(`${DocumentRoot}:commit`, z.object({ commitTime: z.string() }), {
-          body,
-          method: "POST",
-        })
+        snapshot === undefined
+          ? await this.request(`${DocumentRoot}:commit`, z.object({ commitTime: z.string() }), {
+              body,
+              method: "POST",
+            })
+          : await snapshot.commit(body.writes)
       );
 
       return { commitTime: response.commitTime, committed: true, requestId, writes: writes.length };

@@ -95,11 +95,20 @@ THIS_AND_LATER is the default. Existing generated occurrences require separate e
 command does not complete payments or generate occurrences. Read transactions update before editing
 a schedule. The CLI handles workday shifts, repeat limits, and month-end anchors.
 
+Use transactions delete --scope THIS_PAYMENT to delete one occurrence and preserve its
+already-generated remaining series. An ongoing tail without a generated successor cannot use
+THIS_PAYMENT; the CLI cannot generate a replacement. A finite tail whose repeat limit is exhausted
+can use THIS_PAYMENT. Use --scope THIS_AND_LATER to delete the selected occurrence and its verified
+forward clone chain. Earlier history remains intact. The CLI follows validated transaction links; a
+shared eventId does not identify a deletion chain. Earlier nonempty clone links remain unchanged,
+even if their child is deleted. Do not clear these links. Inspect the dry run's deletedTransactions,
+preservedTransactions, and ledger effects before committing.
+
 Transactions with active native allocation predicates, allocation history, or autoAllocated extras
 reject deletion, financial edits, and schedule edits. Inactive allocation flags alone do not block
-edits. Recurring clone links remain intact; updates never rewrite another occurrence. Notes, color,
-sentiment, location, and reminder metadata remain editable within the command's other restrictions.
-Do not remove allocation flags or history to bypass a rejection.
+supported edits or deletion. Updates preserve recurring clone links and never rewrite another
+occurrence. Notes, color, sentiment, location, and reminder metadata remain editable within the
+command's other restrictions. Do not remove allocation flags or history to bypass a rejection.
 
 For an identical retry, reuse the request ID and original payload. For a different operation, use a
 new request ID. For create retries, preserve the resolved id, dueAt, timezone, completed, and
@@ -144,7 +153,7 @@ deletion. After marker expiry, duplicate detection is not guaranteed.
 | `bebu session prepare`       | runnable | Prepare an encrypted session handoff without credentials in the output                        | [commands/session/prepare.md](commands/session/prepare.md)             |
 | `bebu session status`        | runnable | Show session expiry and budget IDs without credentials                                        | [commands/session/status.md](commands/session/status.md)               |
 | `bebu skills`                | group    | Generate or install the bebu agent skill                                                      | [commands/skills.md](commands/skills.md)                               |
-| `bebu skills generate`       | runnable | Generate the bebu skill and command reference                                                 | [commands/skills/generate.md](commands/skills/generate.md)             |
+| `bebu skills generate`       | runnable | Generate references and refresh an existing managed local bebu skill copy                     | [commands/skills/generate.md](commands/skills/generate.md)             |
 | `bebu skills install`        | runnable | Generate and copy the bebu skill into .agents/skills in this project                          | [commands/skills/install.md](commands/skills/install.md)               |
 | `bebu tags`                  | group    | Read tags                                                                                     | [commands/tags.md](commands/tags.md)                                   |
 | `bebu tags list`             | runnable | List IDs and usage counts for tags                                                            | [commands/tags/list.md](commands/tags/list.md)                         |
@@ -152,7 +161,7 @@ deletion. After marker expiry, duplicate detection is not guaranteed.
 | `bebu targets list`          | runnable | Read target settings separately from category funds                                           | [commands/targets/list.md](commands/targets/list.md)                   |
 | `bebu transactions`          | group    | Read history and edit expenses, income, and upcoming recurring payments                       | [commands/transactions.md](commands/transactions.md)                   |
 | `bebu transactions create`   | runnable | Create an expense, income, or card refund with all ledger changes and no automatic allocation | [commands/transactions/create.md](commands/transactions/create.md)     |
-| `bebu transactions delete`   | runnable | Delete a supported transaction and reverse its ledger effects atomically                      | [commands/transactions/delete.md](commands/transactions/delete.md)     |
+| `bebu transactions delete`   | runnable | Delete one occurrence or a verified recurring chain with atomic ledger reversal               | [commands/transactions/delete.md](commands/transactions/delete.md)     |
 | `bebu transactions list`     | runnable | Read the complete history, including older records absent from the app cache                  | [commands/transactions/list.md](commands/transactions/list.md)         |
 | `bebu transactions show`     | runnable | Read a complete transaction record                                                            | [commands/transactions/show.md](commands/transactions/show.md)         |
 | `bebu transactions update`   | runnable | Edit transaction amounts, details, dates, and upcoming recurrence rules                       | [commands/transactions/update.md](commands/transactions/update.md)     |

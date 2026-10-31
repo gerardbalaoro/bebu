@@ -3,14 +3,16 @@ import type { Balance } from "./model.ts";
 import type { Transaction } from "./transaction-model.ts";
 import type { MutationPlan } from "./transactions.ts";
 
-const transactionDetails = (transaction: Transaction | null) =>
+export const transactionDetails = (transaction: Transaction | null) =>
   transaction && {
     amount: transaction.amount,
     anchorDay: transaction.anchorDay,
     cleared: transaction.cleared,
+    clonedToTransactionId: transaction.clonedToTransactionId,
     color: transaction.color,
     completed: transaction.completed,
     dueAt: transaction.dueAt,
+    eventId: transaction.eventId,
     frequency: transaction.frequency,
     id: transaction.id,
     latitude: transaction.latitude,
@@ -117,7 +119,8 @@ const categoryChanges = (plan: MutationPlan, transaction: Transaction) => {
 export const transactionSummary = (
   plan: MutationPlan,
   before: Transaction | null,
-  after: Transaction | null
+  after: Transaction | null,
+  affected: Transaction[] = []
 ) => {
   const transaction = after ?? before;
 
@@ -133,7 +136,11 @@ export const transactionSummary = (
     operation = "delete";
   }
 
-  const transactions = [before, after].filter((entry): entry is Transaction => entry !== null);
+  const transactions = [
+    ...affected,
+    ...[before, after].filter((entry): entry is Transaction => entry !== null),
+  ];
+
   const categories = new Map<string, ReturnType<typeof categoryChanges>[number]>();
 
   for (const entry of transactions) {

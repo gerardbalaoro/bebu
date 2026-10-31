@@ -22,6 +22,85 @@ export class FirestoreTransaction {
     this.mode = mode;
   }
 
+  async document(path: string): Promise<FirestoreDocument>;
+  async document<T>(path: string, schema: z.ZodType<T>): Promise<FirestoreDocument<T>>;
+  async document(
+    path: string,
+    schema: z.ZodType = DataSchema
+  ): Promise<FirestoreDocument<unknown>> {
+    const documents = await this.read([path]);
+    const document = documents.get(path);
+
+    if (!document) {
+      throw new Error(`Required transaction document is missing: ${path}`);
+    }
+
+    return { ...document, data: schema.parse(document.data) };
+  }
+
+  async query(collection: string, field: string, value: string, limit: number) {
+    if (
+      this.finished ||
+      !/^[A-Za-z_]+$/u.test(collection) ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1
+    ) {
+      throw new Error("Invalid transaction query");
+    }
+
+    const rows = await this.client.request(
+      `${this.client.budgetPath}:runQuery`,
+      z.array(z.object({ document: WireDocumentSchema.optional() })),
+      {
+        body: {
+          structuredQuery: {
+            from: [{ collectionId: collection }],
+            limit,
+            where: {
+              fieldFilter: {
+                field: { fieldPath: field },
+                op: "EQUAL",
+                value: { stringValue: value },
+              },
+            },
+          },
+          transaction: this.id,
+        },
+        method: "POST",
+      }
+    );
+
+    const prefix = `${this.client.budgetPath}/${collection}/`;
+    const names = new Set<string>();
+
+    return rows.flatMap(({ document }) => {
+      if (document === undefined) {
+        return [];
+      }
+
+      if (
+        !document.name.startsWith(prefix) ||
+        document.name.slice(prefix.length).includes("/") ||
+        names.has(document.name)
+      ) {
+        throw new Error("Invalid transaction query response");
+      }
+
+      names.add(document.name);
+
+      return [
+        {
+          data: Object.fromEntries(
+            Object.entries(document.fields).map(([key, entry]) => [key, decode(entry)])
+          ),
+          name: document.name,
+          raw: document,
+          updateTime: document.updateTime,
+        },
+      ];
+    });
+  }
+
   static async begin(client: BeyondClient, mode: "read" | "write") {
     const response = await client.request(
       `${DocumentRoot}:beginTransaction`,

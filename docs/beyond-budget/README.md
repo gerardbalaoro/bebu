@@ -34,9 +34,10 @@ cleared balance and account history. Unclearing reverses those movements. Income
 agreement between the stored month and the due-date month in the CLI runtime timezone.
 
 [Transaction Editing](transaction-editing.md) records supported amount, assignment, date, and
-recurrence edits. Upcoming records without saved periods remain periodless. Creating and deleting
-recurring transactions, completing payments, and generating occurrences remain separate native
-workflows.
+recurrence edits. Upcoming records without saved periods remain periodless.
+[Recurring Deletion](recurring-deletion.md) documents explicit deletion scopes and verified
+clone-chain selection. Creating recurring transactions, completing payments, and generating
+occurrences remain native workflows.
 
 ## Data Model
 
@@ -137,7 +138,9 @@ immediately. Report views can change interaction counters even without a financi
 [Command definitions](../../src/cli/app.ts) define CLI syntax.
 [Transaction code](../../src/budget/transactions.ts) defines supported transaction effects.
 [The skill generator](../../src/cli/skills.ts) owns workflow guidance. Regenerate skills with
-`bun run skills` after changes to command definitions or guidance.
+`bun run skills` after changes to command definitions or guidance. Generation also refreshes
+existing managed project-local `.agents/skills/bebu` copies from this source. Custom files and
+external installations stay unchanged.
 
 Product references:
 [Auto-Allocation](https://www.beyondbudgetapp.com/quality-of-life/auto-allocation),

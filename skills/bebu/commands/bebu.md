@@ -45,9 +45,10 @@ Before a change:
 
 Amounts use integer minor units (PHP centavos). bebu creates and deletes one-off expenses, income,
 and card refunds (type REFUND with a positive amountMinor and expense categoryId). Updates also
-support existing upcoming recurring payments. Transfers, splits, debts, files, reconciliation, and
-active linked allocation effects require separate flows. For manual allocations, use allocations set
---dry-run followed by allocations apply with the saved plan and an explicit request ID. Card
+support existing upcoming recurring payments. Recurring deletion requires an explicit --scope; read
+transactions delete --help and inspect its dry run. Transfers, splits, debts, files, reconciliation,
+and active linked allocation effects require separate flows. For manual allocations, use allocations
+set --dry-run followed by allocations apply with the saved plan and an explicit request ID. Card
 purchases can overspend a category; the full purchase amount changes spending and the payment
 reserve without allocating funds. Refunds reverse those effects. Historical dates are retained.
 

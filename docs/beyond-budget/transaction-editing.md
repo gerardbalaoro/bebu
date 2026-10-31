@@ -22,7 +22,8 @@ block an edit. The CLI checks both the original and replacement transaction for 
 eligibility, recorded allocation history, and allocation markers. Metadata edits preserve these
 fields. Updates preserve recurring clone links without changing the linked occurrence. Updates do
 not create or delete recurring records, complete payments, or generate occurrences. Already-created
-occurrences require separate edits.
+occurrences require separate edits. For deletion scopes, read
+[Recurring Deletion](recurring-deletion.md).
 
 ## Recurrence Rules
 

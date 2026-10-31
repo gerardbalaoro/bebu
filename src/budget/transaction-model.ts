@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { DataSchema, decode } from "../firestore/encoding.ts";
-import type { Data } from "../firestore/encoding.ts";
+import type { Data, CommitOptions } from "../firestore/encoding.ts";
 
 export const ObjectIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,80}$/u);
 
@@ -77,6 +77,11 @@ export const TransactionSchema = z.looseObject({
 });
 
 export type Transaction = z.infer<typeof TransactionSchema>;
+
+export const TransactionDeleteScopeSchema = z.enum(["THIS_PAYMENT", "THIS_AND_LATER"]);
+export const TransactionDeleteSchema = z.object({ scope: TransactionDeleteScopeSchema.optional() });
+
+export type TransactionDeleteOptions = CommitOptions & z.infer<typeof TransactionDeleteSchema>;
 
 export const TransactionCreateSchema = z.strictObject({
   accountId: ObjectIdSchema,
