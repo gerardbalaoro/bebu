@@ -15,6 +15,7 @@ import type { CommitResult, Data, Write } from "../firestore/encoding.ts";
 import { AccountService } from "./accounts.ts";
 import { budgetDiagnostics } from "./diagnostics.ts";
 import { categoryFunding } from "./funding.ts";
+import type { TransactionPatch } from "./transaction-model.ts";
 import { TransactionService } from "./transactions.ts";
 
 const budgetPath = "projects/beyond-budget/databases/(default)/documents/budgets/testBudget";
@@ -1263,13 +1264,15 @@ test.each([
       await service.update(transactionId, { cleared: after }, { dryRun: true })
     );
 
-    expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual([
-      { fieldPath: "data.cash.balanceAmount", increment: { integerValue: clearedDelta } },
-      {
-        fieldPath: "data.cash.unclearedBalanceAmount",
-        increment: { integerValue: unclearedDelta },
-      },
-    ]);
+    expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual(
+      expect.arrayContaining([
+        { fieldPath: "data.cash.balanceAmount", increment: { integerValue: clearedDelta } },
+        {
+          fieldPath: "data.cash.unclearedBalanceAmount",
+          increment: { integerValue: unclearedDelta },
+        },
+      ])
+    );
     expect(writeAt(writes, "stashes/cash").updateTransforms).toEqual([
       { fieldPath: "data.historicalBalances.`2026-10`", increment: { integerValue: clearedDelta } },
     ]);
@@ -1291,4 +1294,732 @@ test("income history rejects a stored month that differs from its runtime due-da
     "month"
   );
   expect(calls.every((c) => c.method === "GET")).toBe(true);
+});
+
+test("amount edits replace card spending and reserves without changing transaction counts", async () => {
+  const { service, calls } = fixture();
+  const result = await service.update(transactionId, { amountMinor: 50_000 }, { dryRun: true });
+  const writes = writesFrom(result);
+  expect(writeAt(writes, `transactions/${transactionId}`)).toMatchObject({
+    currentDocument: { updateTime: timestamp },
+    update: { fields: { amount: { integerValue: "-50000" } } },
+  });
+  expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual([
+    { fieldPath: "balances.cardCategory.otherAmount", increment: { integerValue: "49750" } },
+    { fieldPath: "balances.spend.spentAmount", increment: { integerValue: "49750" } },
+  ]);
+  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual([
+    { fieldPath: "data.card.balanceAmount", increment: { integerValue: "-49750" } },
+  ]);
+  expect(writeAt(writes, "stashes/spend").updateTransforms).toContainEqual({
+    fieldPath: "data.historicalSpending.`2026-10`",
+    increment: { integerValue: "49750" },
+  });
+
+  for (const index of ["transactionsIndex", "periodOne", "card", "spend"]) {
+    expect(writeAt(writes, `stashes/${index}`).updateMask?.fieldPaths).toEqual([
+      `data.completedTransactions.${transactionId}.amount`,
+    ]);
+  }
+
+  expect(result.summary).toMatchObject({
+    accounts: [{ balanceAmount: { after: -50_000, before: -250, delta: -49_750 }, id: "card" }],
+    categories: [
+      { after: { availableAmount: 0 }, id: "spend" },
+      { after: { otherAmount: 50_000 }, id: "cardCategory" },
+    ],
+    transaction: { after: { amount: -50_000 }, before: { amount: -250 } },
+  });
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("amount and clearing edits replace income effects once using the new amount", async () => {
+  const { service, documents } = fixture();
+  documents.set(budgetPath, { ...documents.get(budgetPath), type: "ZERO_BASED" });
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    amount: 250,
+    payee: { id: "shop", linkedObjectId: null, linkedObjectType: null, type: "PAYEE" },
+    tagIds: ["trip"],
+    targetFrom: null,
+    targetTo: { id: "cash", linkedObjectId: null, linkedObjectType: null, type: "GENERIC_ACCOUNT" },
+    type: "INFLOW",
+  });
+
+  const writes = writesFrom(
+    await service.update(transactionId, { amountMinor: 400, cleared: false }, { dryRun: true })
+  );
+
+  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual([
+    { fieldPath: "data.cash.balanceAmount", increment: { integerValue: "-250" } },
+    { fieldPath: "data.cash.unclearedBalanceAmount", increment: { integerValue: "400" } },
+  ]);
+  expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual([
+    { fieldPath: "allocationAmount", increment: { integerValue: "-250" } },
+  ]);
+  expect(writeAt(writes, "stashes/cash").updateTransforms).toContainEqual({
+    fieldPath: "data.historicalBalances.`2026-10`",
+    increment: { integerValue: "-250" },
+  });
+
+  for (const id of ["shop", "trip"]) {
+    expect(writeAt(writes, `stashes/${id}`).updateTransforms).toEqual([
+      { fieldPath: "data.historicalBalances.`2026-10`", increment: { integerValue: "150" } },
+    ]);
+  }
+});
+
+test("recurring upcoming amount edits change obligations and preserve the saved schedule", async () => {
+  const { service, documents } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    completed: false,
+    frequency: "MONTHLY",
+    repeatCount: 12,
+    sequenceCount: 3,
+    version: null,
+  });
+
+  for (const id of ["transactionsIndex", "periodOne", "card", "spend"]) {
+    documents.set(`${budgetPath}/stashes/${id}`, {
+      data: { upcomingTransactions: { [transactionId]: { amount: -250, frequency: "MONTHLY" } } },
+    });
+  }
+
+  documents.set(`${budgetPath}/periods/periodOne`, {
+    balances: { spend: { upcomingAmount: 250 } },
+  });
+
+  const result = await service.update(
+    transactionId,
+    { amountMinor: 400, notes: "new bill" },
+    { dryRun: true }
+  );
+
+  const writes = writesFrom(result);
+  expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual([
+    { fieldPath: "balances.spend.upcomingAmount", increment: { integerValue: "150" } },
+  ]);
+  expect(writes.some((write) => write.update?.name === `${budgetPath}/stashes/accountsIndex`)).toBe(
+    false
+  );
+  expect(
+    writeAt(writes, `transactions/${transactionId}`).updateMask?.fieldPaths.toSorted()
+  ).toEqual(["amount", "notes"]);
+
+  for (const index of ["transactionsIndex", "periodOne", "card", "spend"]) {
+    expect(writeAt(writes, `stashes/${index}`).updateMask?.fieldPaths).toContain(
+      `data.upcomingTransactions.${transactionId}.amount`
+    );
+  }
+
+  expect(result.summary).toMatchObject({
+    accounts: [],
+    categories: [{ after: { upcomingAmount: 400 }, before: { upcomingAmount: 250 }, id: "spend" }],
+  });
+});
+
+test("periodless upcoming recurring entries can change amounts and metadata without creating a period", async () => {
+  const { service, documents } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    completed: false,
+    frequency: "MONTHLY",
+    periodId: null,
+    version: null,
+    yearMonth: "2027-01",
+  });
+  documents.set(`${budgetPath}/stashes/transactionsIndex`, {
+    data: { upcomingTransactions: { [transactionId]: { amount: -250 } } },
+  });
+
+  const result = await service.update(
+    transactionId,
+    { amountMinor: 500, cleared: false, color: "BLUE" },
+    { dryRun: true }
+  );
+
+  const writes = writesFrom(result);
+  expect(
+    writes
+      .filter((write) => !write.update?.name.includes("/saveMarkers/"))
+      .map((write) => write.update?.name)
+  ).toEqual([
+    `${budgetPath}/transactions/${transactionId}`,
+    `${budgetPath}/stashes/transactionsIndex`,
+  ]);
+  expect(writeAt(writes, `transactions/${transactionId}`).update?.fields?.amount).toEqual({
+    integerValue: "-500",
+  });
+  expect(result.summary).toMatchObject({ accounts: [], categories: [] });
+});
+
+test("amount edits reject insufficient card funds, allocation effects, and unsafe amounts before committing", async () => {
+  const { service, documents, calls } = fixture();
+  await expect(
+    service.update(transactionId, { amountMinor: 50_001 }, { dryRun: true })
+  ).rejects.toThrow("Fund the expense category");
+  await Promise.all(
+    [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1].map(async (amountMinor) => {
+      await expect(
+        service.update(transactionId, { amountMinor }, { dryRun: true })
+      ).rejects.toThrow();
+    })
+  );
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    autoAllocateIfCapable: true,
+  });
+  await expect(
+    service.update(transactionId, { amountMinor: 300 }, { dryRun: true })
+  ).rejects.toThrow("allocation");
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("moving an upcoming bill to another month reverses the old obligation and updates both indexes", async () => {
+  const { service, documents } = fixture();
+  documents.set(budgetPath, {
+    ...documents.get(budgetPath),
+    availablePeriods: { "2026-10": { id: "periodOne" }, "2026-11": { id: "periodTwo" } },
+  });
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    completed: false,
+    frequency: "MONTHLY",
+    version: null,
+  });
+  documents.set(`${budgetPath}/periods/periodOne`, {
+    balances: { spend: { upcomingAmount: 250 } },
+  });
+  documents.set(`${budgetPath}/periods/periodTwo`, {
+    balances: { spend: { upcomingAmount: 100 } },
+  });
+
+  for (const index of ["transactionsIndex", "periodOne", "card", "spend"]) {
+    documents.set(`${budgetPath}/stashes/${index}`, {
+      data: { upcomingTransactions: { [transactionId]: { amount: -250 } } },
+    });
+  }
+
+  documents.set(`${budgetPath}/stashes/periodTwo`, { data: { upcomingTransactions: {} } });
+
+  const result = await service.update(
+    transactionId,
+    {
+      amountMinor: 400,
+      dueAt: "2026-11-20T12:00:00Z",
+      frequency: "FORTNIGHTLY",
+      nonWorkingDayPolicy: "SHIFT_TO_PREVIOUS_AVAILABLE_WORKDAY",
+      repeatCount: 8,
+    },
+    { dryRun: true }
+  );
+
+  const writes = writesFrom(result);
+  expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual([
+    { fieldPath: "balances.spend.upcomingAmount", increment: { integerValue: "-250" } },
+  ]);
+  expect(writeAt(writes, "periods/periodTwo").updateTransforms).toEqual([
+    { fieldPath: "balances.spend.upcomingAmount", increment: { integerValue: "400" } },
+  ]);
+  expect(writeAt(writes, `transactions/${transactionId}`).update?.fields).toMatchObject({
+    dueAt: { timestampValue: "2026-11-20T12:00:00.000Z" },
+    frequency: { stringValue: "FORTNIGHTLY" },
+    periodId: { stringValue: "periodTwo" },
+    repeatCount: { integerValue: "8" },
+    yearMonth: { stringValue: "2026-11" },
+  });
+  expect(writeAt(writes, "stashes/periodOne").updateMask?.fieldPaths).toEqual([
+    `data.upcomingTransactions.${transactionId}`,
+  ]);
+  expect(writeAt(writes, "stashes/periodOne").update?.fields).toEqual({
+    data: { mapValue: { fields: { upcomingTransactions: { mapValue: { fields: {} } } } } },
+  });
+  expect(writeAt(writes, "stashes/periodTwo").updateMask?.fieldPaths).toEqual([
+    `data.upcomingTransactions.${transactionId}`,
+  ]);
+  expect(result.summary?.categories).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        after: expect.objectContaining({ upcomingAmount: 0 }),
+        before: expect.objectContaining({ upcomingAmount: 250 }),
+        yearMonth: "2026-10",
+      }),
+      expect.objectContaining({
+        after: expect.objectContaining({ upcomingAmount: 500 }),
+        before: expect.objectContaining({ upcomingAmount: 100 }),
+        yearMonth: "2026-11",
+      }),
+    ])
+  );
+});
+
+test("account, category, payee, and tag edits move spending, reserves, history, and usage counts", async () => {
+  const { service, documents } = fixture();
+  const categories = documents.get(`${budgetPath}/stashes/categoriesIndex`);
+  documents.set(`${budgetPath}/stashes/categoriesIndex`, {
+    data: {
+      categories: {
+        ...z
+          .object({ data: z.object({ categories: z.record(z.string(), z.unknown()) }) })
+          .parse(categories).data.categories,
+        food: { id: "food", transactionCount: 0, type: "DEFAULT" },
+      },
+    },
+  });
+  documents.set(`${budgetPath}/stashes/food`, {
+    data: { completedTransactionCount: 0, completedTransactions: {}, historicalSpending: {} },
+  });
+
+  const result = await service.update(
+    transactionId,
+    { accountId: "cash", categoryId: "food", payeeId: "shop", tagIds: ["trip"] },
+    { dryRun: true }
+  );
+
+  const writes = writesFrom(result);
+  expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual(
+    expect.arrayContaining([
+      { fieldPath: "data.card.balanceAmount", increment: { integerValue: "250" } },
+      { fieldPath: "data.cash.balanceAmount", increment: { integerValue: "-250" } },
+      { fieldPath: "data.card.transactionCount", increment: { integerValue: "-1" } },
+      { fieldPath: "data.cash.transactionCount", increment: { integerValue: "1" } },
+    ])
+  );
+  expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual(
+    expect.arrayContaining([
+      { fieldPath: "balances.cardCategory.otherAmount", increment: { integerValue: "-250" } },
+      { fieldPath: "balances.spend.spentAmount", increment: { integerValue: "-250" } },
+      { fieldPath: "balances.food.spentAmount", increment: { integerValue: "250" } },
+    ])
+  );
+  expect(writeAt(writes, "stashes/food").updateTransforms).toEqual(
+    expect.arrayContaining([
+      { fieldPath: "data.historicalSpending.`2026-10`", increment: { integerValue: "250" } },
+      { fieldPath: "data.completedTransactionCount", increment: { integerValue: "1" } },
+    ])
+  );
+
+  for (const index of ["shop", "trip"]) {
+    expect(writeAt(writes, `stashes/${index}`).updateMask?.fieldPaths).toContain(
+      `data.completedTransactions.${transactionId}`
+    );
+  }
+
+  expect(writeAt(writes, "stashes/payeesIndex").updateTransforms).toEqual([
+    { fieldPath: "data.shop.transactionCount", increment: { integerValue: "1" } },
+  ]);
+  expect(writeAt(writes, "stashes/tagsIndex").updateTransforms).toEqual([
+    { fieldPath: "data.trip.transactionCount", increment: { integerValue: "1" } },
+  ]);
+  expect(result.summary?.accounts.map((account) => account.id).toSorted()).toEqual([
+    "card",
+    "cash",
+  ]);
+  expect(result.summary?.categories.map((category) => category.id).toSorted()).toEqual([
+    "cardCategory",
+    "food",
+    "spend",
+  ]);
+});
+
+test("date edits use the transaction timezone and permit upcoming months with no saved period", async () => {
+  const { service, documents } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    completed: false,
+    frequency: "MONTHLY",
+  });
+
+  const result = await service.update(
+    transactionId,
+    { dueAt: "2026-12-31T20:00:00Z", frequency: "ONE_OFF", timezone: "Asia/Manila" },
+    { dryRun: true }
+  );
+
+  const fields = writeAt(writesFrom(result), `transactions/${transactionId}`).update?.fields;
+  expect(fields).toMatchObject({
+    frequency: { stringValue: "ONE_OFF" },
+    periodId: { nullValue: null },
+    yearMonth: { stringValue: "2027-01" },
+  });
+  expect(
+    writesFrom(result).filter((write) => write.update?.name.includes("/periods/"))
+  ).toHaveLength(1);
+  await expect(
+    service.update(transactionId, { timezone: "Not/AZone" }, { dryRun: true })
+  ).rejects.toThrow();
+});
+
+test("recurring metadata edits preserve series identity and schedule without ledger writes", async () => {
+  const { service, documents } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    frequency: "MONTHLY",
+    repeatCount: 10,
+    sequenceCount: 4,
+  });
+
+  const result = await service.update(
+    transactionId,
+    {
+      latitude: 14.6,
+      longitude: 121,
+      notes: "reviewed",
+      reminderDescription: "Review amount",
+      reminderEnabled: true,
+      reminderName: "Bill",
+      sentiment: "THUMBS_UP",
+    },
+    { dryRun: true }
+  );
+
+  const writes = writesFrom(result);
+  expect(
+    writeAt(writes, `transactions/${transactionId}`).updateMask?.fieldPaths.toSorted()
+  ).toEqual([
+    "latitude",
+    "longitude",
+    "notes",
+    "reminderDescription",
+    "reminderEnabled",
+    "reminderName",
+    "sentiment",
+  ]);
+  expect(
+    writes.every((write) => !write.updateTransforms?.some((transform) => "increment" in transform))
+  ).toBe(true);
+  expect(result.summary?.transaction.after).toMatchObject({
+    frequency: "MONTHLY",
+    reminderEnabled: true,
+    repeatCount: 10,
+    sentiment: "THUMBS_UP",
+    sequenceCount: 4,
+  });
+});
+
+test("recurrence edits normalize workdays and retain month-end anchors", async () => {
+  const { service, documents } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    anchorDay: 31,
+    completed: false,
+    dueAt: "2030-02-28T12:00:00Z",
+    frequency: "MONTHLY",
+    periodId: null,
+    repeatCount: 8,
+    sequenceCount: 4,
+    yearMonth: "2030-02",
+  });
+
+  const shifted = writesFrom(
+    await service.update(
+      transactionId,
+      { dueAt: "2030-03-31T12:00:00Z", nonWorkingDayPolicy: "SHIFT_TO_NEXT_AVAILABLE_WORKDAY" },
+      { dryRun: true }
+    )
+  );
+
+  expect(writeAt(shifted, `transactions/${transactionId}`).update?.fields).toMatchObject({
+    dueAt: { timestampValue: "2030-04-01T12:00:00.000Z" },
+    offsetAdjustment: { integerValue: "1" },
+    yearMonth: { stringValue: "2030-04" },
+  });
+  expect(writeAt(shifted, `transactions/${transactionId}`).updateMask?.fieldPaths).not.toContain(
+    "anchorDay"
+  );
+
+  const frequency = writesFrom(
+    await service.update(transactionId, { frequency: "WEEKLY" }, { dryRun: true })
+  );
+
+  expect(writeAt(frequency, `transactions/${transactionId}`).update?.fields).toMatchObject({
+    anchorDay: { nullValue: null },
+    repeatCount: { nullValue: null },
+    sequenceCount: { integerValue: "1" },
+  });
+
+  const repeat = writesFrom(
+    await service.update(transactionId, { repeatCount: 2 }, { dryRun: true })
+  );
+
+  expect(writeAt(repeat, `transactions/${transactionId}`).update?.fields?.repeatCount).toEqual({
+    integerValue: "5",
+  });
+
+  const unlimited = writesFrom(
+    await service.update(transactionId, { repeatCount: 0 }, { dryRun: true })
+  );
+
+  expect(writeAt(unlimited, `transactions/${transactionId}`).update?.fields?.repeatCount).toEqual({
+    nullValue: null,
+  });
+});
+
+test("recurring amount edits can affect one payment or the remaining series", async () => {
+  const { service, documents } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    completed: false,
+    dueAt: "2030-02-28T12:00:00Z",
+    frequency: "MONTHLY",
+    periodId: null,
+    yearMonth: "2030-02",
+  });
+
+  const single = writesFrom(
+    await service.update(
+      transactionId,
+      { amountMinor: 400, recurrenceScope: "THIS_PAYMENT" },
+      { dryRun: true }
+    )
+  );
+
+  expect(writeAt(single, `transactions/${transactionId}`).update?.fields?.occurrenceChange).toEqual(
+    {
+      mapValue: {
+        fields: {
+          amount: { integerValue: "-400" },
+          dueAt: { nullValue: null },
+          seriesAmount: { integerValue: "-250" },
+          seriesAnchorAt: { nullValue: null },
+        },
+      },
+    }
+  );
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...documents.get(`${budgetPath}/transactions/${transactionId}`),
+    amount: -400,
+    occurrenceChange: { amount: -400, dueAt: null, seriesAmount: -250, seriesAnchorAt: null },
+  });
+
+  const series = writesFrom(
+    await service.update(
+      transactionId,
+      { amountMinor: 500, recurrenceScope: "THIS_AND_LATER" },
+      { dryRun: true }
+    )
+  );
+
+  expect(writeAt(series, `transactions/${transactionId}`).update?.fields?.occurrenceChange).toEqual(
+    { nullValue: null }
+  );
+});
+
+test("one-payment date overrides retain the series anchor and encode canonical and index dates as timestamps", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    anchorDay: 31,
+    completed: false,
+    dueAt: "2030-02-28T12:00:00Z",
+    frequency: "MONTHLY",
+    periodId: null,
+    yearMonth: "2030-02",
+  });
+  documents.set(`${budgetPath}/stashes/transactionsIndex`, {
+    data: { upcomingTransactions: { [transactionId]: { amount: -250 } } },
+  });
+
+  const writes = writesFrom(
+    await service.update(
+      transactionId,
+      { dueAt: "2030-03-15T12:00:00Z", recurrenceScope: "THIS_PAYMENT" },
+      { dryRun: true }
+    )
+  );
+
+  expect(writeAt(writes, `transactions/${transactionId}`).update?.fields?.occurrenceChange).toEqual(
+    {
+      mapValue: {
+        fields: {
+          amount: { nullValue: null },
+          dueAt: { timestampValue: "2030-03-15T12:00:00.000Z" },
+          seriesAmount: { nullValue: null },
+          seriesAnchorAt: { timestampValue: "2030-02-28T12:00:00.000Z" },
+        },
+      },
+    }
+  );
+  expect(writeAt(writes, `transactions/${transactionId}`).updateMask?.fieldPaths).not.toContain(
+    "anchorDay"
+  );
+  expect(writeAt(writes, "stashes/transactionsIndex").updateMask?.fieldPaths).toContain(
+    `data.upcomingTransactions.${transactionId}.seriesAnchorAt`
+  );
+  expect(
+    calls.filter((call) => call.path === `${budgetPath}/transactions/${transactionId}`)
+  ).toHaveLength(1);
+});
+
+test("workday edits preserve local time across daylight-saving changes and do not compound old shifts", async () => {
+  const { service, documents } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    completed: false,
+    dueAt: "2030-03-11T05:30:00Z",
+    frequency: "WEEKLY",
+    nonWorkingDayPolicy: "SHIFT_TO_NEXT_AVAILABLE_WORKDAY",
+    offsetAdjustment: 1,
+    periodId: null,
+    timezone: "America/New_York",
+    yearMonth: "2030-03",
+  });
+
+  const shifted = writesFrom(
+    await service.update(
+      transactionId,
+      { nonWorkingDayPolicy: "SHIFT_TO_PREVIOUS_AVAILABLE_WORKDAY" },
+      { dryRun: true }
+    )
+  );
+
+  expect(writeAt(shifted, `transactions/${transactionId}`).update?.fields).toMatchObject({
+    dueAt: { timestampValue: "2030-03-08T06:30:00.000Z" },
+    offsetAdjustment: { integerValue: "-2" },
+  });
+
+  const next = writesFrom(
+    await service.update(transactionId, { dueAt: "2030-03-10T06:30:00Z" }, { dryRun: true })
+  );
+
+  expect(writeAt(next, `transactions/${transactionId}`).updateMask?.fieldPaths).not.toContain(
+    "dueAt"
+  );
+});
+
+const InvalidEdits: { changes: TransactionPatch; message: string }[] = [
+  { changes: { frequency: "MONTHLY" }, message: "upcoming" },
+  { changes: { repeatCount: 3 }, message: "upcoming" },
+  { changes: { nonWorkingDayPolicy: "SHIFT_TO_NEXT_AVAILABLE_WORKDAY" }, message: "upcoming" },
+  { changes: { tagIds: ["trip", "trip"] }, message: "unique" },
+  { changes: { payeeId: "missing" }, message: "Payee" },
+  { changes: { categoryId: "cardCategory" }, message: "Special categories" },
+];
+
+test.each(InvalidEdits)(
+  "invalid edits fail before a commit: $message",
+  async ({ changes, message }) => {
+    const { service, calls } = fixture();
+    await expect(service.update(transactionId, changes, { dryRun: true })).rejects.toThrow(message);
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+  }
+);
+
+test("CLI update accepts amounts and recurrence fields and previews the complete result", async () => {
+  const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-edit-cli-"));
+  const previous = process.env.BEBU_SESSION_FILE;
+  const { fetcher, documents, calls } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    completed: false,
+    dueAt: "2030-02-28T12:00:00Z",
+    frequency: "MONTHLY",
+    periodId: null,
+    yearMonth: "2030-02",
+  });
+
+  const fetchMock = spyOn(globalThis, "fetch").mockImplementation(
+    Object.assign(fetcher, { preconnect: fetch.preconnect })
+  );
+
+  process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+
+  try {
+    await writeFile(process.env.BEBU_SESSION_FILE, JSON.stringify(session));
+    const file = nodePath.join(directory, "edit.json");
+    await writeFile(
+      file,
+      JSON.stringify({
+        amountMinor: 500,
+        dueAt: "2030-03-15T12:00:00Z",
+        frequency: "WEEKLY",
+        recurrenceScope: "THIS_AND_LATER",
+        repeatCount: 12,
+      })
+    );
+
+    const result = await captureExecute(createApp(), [
+      "transactions",
+      "update",
+      transactionId,
+      "--file",
+      file,
+      "--dry-run",
+      "--full",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      body: { writes: expect.any(Array) },
+      dryRun: true,
+      summary: {
+        transaction: {
+          after: {
+            amount: -500,
+            dueAt: "2030-03-15T12:00:00.000Z",
+            frequency: "WEEKLY",
+            repeatCount: 12,
+          },
+        },
+      },
+    });
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+  } finally {
+    fetchMock.mockRestore();
+
+    if (previous === undefined) {
+      delete process.env.BEBU_SESSION_FILE;
+    } else {
+      process.env.BEBU_SESSION_FILE = previous;
+    }
+
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test("native omitted override fields and invalid old anchors do not prevent a recurring edit", async () => {
+  const { service, documents } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    amount: -400,
+    anchorDay: 0,
+    completed: false,
+    dueAt: "2030-02-28T12:00:00Z",
+    frequency: "MONTHLY",
+    occurrenceChange: { amount: -400, seriesAmount: -250 },
+    periodId: null,
+    yearMonth: "2030-02",
+  });
+
+  const writes = writesFrom(
+    await service.update(transactionId, { dueAt: "2030-03-31T12:00:00Z" }, { dryRun: true })
+  );
+
+  expect(writeAt(writes, `transactions/${transactionId}`).update?.fields?.anchorDay).toEqual({
+    integerValue: "31",
+  });
+});
+
+test("an upcoming one-off entry can become recurring with an explicit series scope", async () => {
+  const { service, documents } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    completed: false,
+    dueAt: "2030-02-28T12:00:00Z",
+    periodId: null,
+    yearMonth: "2030-02",
+  });
+
+  const result = await service.update(
+    transactionId,
+    { frequency: "MONTHLY", recurrenceScope: "THIS_AND_LATER" },
+    { dryRun: true }
+  );
+
+  expect(result.summary?.transaction.after).toMatchObject({
+    anchorDay: 28,
+    frequency: "MONTHLY",
+    sequenceCount: 1,
+  });
 });

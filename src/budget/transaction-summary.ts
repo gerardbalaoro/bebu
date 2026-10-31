@@ -6,25 +6,42 @@ import type { MutationPlan } from "./transactions.ts";
 const transactionDetails = (transaction: Transaction | null) =>
   transaction && {
     amount: transaction.amount,
+    anchorDay: transaction.anchorDay,
     cleared: transaction.cleared,
     color: transaction.color,
     completed: transaction.completed,
     dueAt: transaction.dueAt,
+    frequency: transaction.frequency,
     id: transaction.id,
+    latitude: transaction.latitude,
+    longitude: transaction.longitude,
+    nonWorkingDayPolicy: transaction.nonWorkingDayPolicy,
     notes: transaction.notes,
+    occurrenceChange: transaction.occurrenceChange,
+    offsetAdjustment: transaction.offsetAdjustment,
+    payee: transaction.payee,
+    periodId: transaction.periodId,
+    reminderDescription: transaction.reminderDescription,
+    reminderEnabled: transaction.reminderEnabled,
+    reminderName: transaction.reminderName,
+    repeatCount: transaction.repeatCount,
+    sentiment: transaction.sentiment,
+    sequenceCount: transaction.sequenceCount,
+    tagIds: transaction.tagIds,
     targetFrom: transaction.targetFrom,
     targetTo: transaction.targetTo,
+    timezone: transaction.timezone,
     type: transaction.type,
     yearMonth: transaction.yearMonth,
   };
 
-const accountChanges = (plan: MutationPlan, transaction: Transaction) => {
+const accountChanges = (plan: MutationPlan, transactions: Transaction[]) => {
   const accountPath = `${plan.client.budgetPath}/stashes/${plan.client.stashId("ACCOUNTS")}`;
 
   const ids = new Set(
-    [transaction.targetFrom, transaction.targetTo].flatMap((target) =>
-      target !== null && target.type !== "CATEGORY" ? [target.id] : []
-    )
+    transactions
+      .flatMap((transaction) => [transaction.targetFrom, transaction.targetTo])
+      .flatMap((target) => (target !== null && target.type !== "CATEGORY" ? [target.id] : []))
   );
 
   return [...ids].flatMap((id) => {
@@ -36,7 +53,7 @@ const accountChanges = (plan: MutationPlan, transaction: Transaction) => {
       "unclearedBalanceAmount",
     ]);
 
-    if (!balanceAmount?.delta && !unclearedBalanceAmount?.delta) {
+    if ((balanceAmount?.delta ?? 0) === 0 && (unclearedBalanceAmount?.delta ?? 0) === 0) {
       return [];
     }
 
@@ -45,7 +62,7 @@ const accountChanges = (plan: MutationPlan, transaction: Transaction) => {
 };
 
 const categoryChanges = (plan: MutationPlan, transaction: Transaction) => {
-  if (!transaction.periodId) {
+  if (transaction.periodId === undefined || transaction.periodId === null) {
     return [];
   }
 
@@ -60,7 +77,7 @@ const categoryChanges = (plan: MutationPlan, transaction: Transaction) => {
 
   const card = transaction.targetFrom;
 
-  if (card?.type === "CREDIT_CARD" && card.linkedObjectId) {
+  if (card?.type === "CREDIT_CARD" && card.linkedObjectId !== null && card.linkedObjectId !== "") {
     categories.set(card.linkedObjectId, "cardPaymentReserve");
   }
 
@@ -79,7 +96,7 @@ const categoryChanges = (plan: MutationPlan, transaction: Transaction) => {
       const amount = plan.amountChange(periodPath, ["balances", id, field]);
       before[field] = amount?.before ?? 0;
       after[field] = amount?.after ?? 0;
-      changed ||= !!amount?.delta;
+      changed ||= amount !== undefined && amount.delta !== 0;
     }
 
     return changed
@@ -115,15 +132,40 @@ export const transactionSummary = (
     operation = "delete";
   }
 
+  const transactions = [before, after].filter((entry): entry is Transaction => entry !== null);
+  const categories = new Map<string, ReturnType<typeof categoryChanges>[number]>();
+
+  for (const entry of transactions) {
+    for (const category of categoryChanges(plan, entry)) {
+      categories.set(`${entry.periodId}/${category.id}`, category);
+    }
+  }
+
+  const periods = new Map(
+    transactions.flatMap((entry) =>
+      entry.periodId !== null && entry.periodId !== undefined
+        ? [[entry.periodId, entry.yearMonth] as const]
+        : []
+    )
+  );
+
   return {
-    accounts: accountChanges(plan, transaction),
-    allocationResources: transaction.periodId
-      ? plan.amountChange(`${plan.client.budgetPath}/periods/${transaction.periodId}`, [
-          "allocationAmount",
-        ])
-      : undefined,
+    accounts: accountChanges(plan, transactions),
+    allocationPeriods: [...periods].flatMap(([periodId, yearMonth]) => {
+      const amount = plan.amountChange(`${plan.client.budgetPath}/periods/${periodId}`, [
+        "allocationAmount",
+      ]);
+
+      return amount !== undefined && amount.delta !== 0 ? [{ ...amount, periodId, yearMonth }] : [];
+    }),
+    allocationResources:
+      transaction.periodId !== undefined && transaction.periodId !== null
+        ? plan.amountChange(`${plan.client.budgetPath}/periods/${transaction.periodId}`, [
+            "allocationAmount",
+          ])
+        : undefined,
     automaticAllocation: false,
-    categories: categoryChanges(plan, transaction),
+    categories: [...categories.values()],
     operation,
     transaction: { after: transactionDetails(after), before: transactionDetails(before) },
   };

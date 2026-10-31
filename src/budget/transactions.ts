@@ -12,11 +12,16 @@ import type {
   Write,
 } from "../firestore/encoding.ts";
 import { AccountsSchema } from "./accounts.ts";
-import type { Account } from "./accounts.ts";
 import { requireIndependentTransaction } from "./allocation-effects.ts";
 import { LabelsSchema } from "./labels.ts";
-import { CategoriesSchema, PeriodSchema, categoryAvailable } from "./model.ts";
-import type { Category } from "./model.ts";
+import { CategoriesSchema } from "./model.ts";
+import { editTransaction } from "./transaction-edit.ts";
+import {
+  transactionIndexPaths,
+  transactionPreview,
+  updateTransactionIndexes,
+} from "./transaction-index.ts";
+import { applyTransactionLedger } from "./transaction-ledger.ts";
 import {
   CollectionSchema,
   ObjectIdSchema,
@@ -34,38 +39,11 @@ import type {
   TransactionPatch,
 } from "./transaction-model.ts";
 import { transactionSummary } from "./transaction-summary.ts";
+import { makeTarget } from "./transaction-target.ts";
 
-type TransactionContext = Awaited<ReturnType<TransactionService["context"]>>;
-
-// Native inflow history (51731) selects the due-date month in the runtime system timezone.
-// Reject disagreement with the stored month instead of moving money between guessed history keys.
-const incomeHistoryMonth = (transaction: Transaction): string => {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    month: "2-digit",
-    year: "numeric",
-  }).formatToParts(new Date(transaction.dueAt));
-
-  const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const month = `${fields.year}-${fields.month}`;
-
-  if (month !== transaction.yearMonth) {
-    throw new Error(
-      "Income history month differs from the runtime due-date month. Resolve it in the app"
-    );
-  }
-
-  return month;
-};
+export type TransactionContext = Awaited<ReturnType<TransactionService["context"]>>;
 
 const requireId = (id: string): string => ObjectIdSchema.parse(id);
-
-const requireTarget = (target: Target | null): Target => {
-  if (!target) {
-    throw new Error("Transaction is missing a required target");
-  }
-
-  return target;
-};
 
 // Each consumer validates nested Firestore paths for numeric values or existence.
 const get = (object: Data, path: string[]): unknown => {
@@ -193,56 +171,6 @@ export class MutationPlan {
   }
 }
 
-const preview = (transaction: Transaction): Data => {
-  const keys = [
-    "id",
-    "amount",
-    "autoAllocateIfIncome",
-    "cleared",
-    "clonedToTransactionId",
-    "color",
-    "completed",
-    "externalId",
-    "frequency",
-    "latitude",
-    "longitude",
-    "nonWorkingDayPolicy",
-    "notes",
-    "offsetAdjustment",
-    "reconciled",
-    "reconciledAt",
-    "reminderEnabled",
-    "repeatCount",
-    "sentiment",
-    "sequenceCount",
-    "splitId",
-    "subType",
-    "tagIds",
-    "type",
-    "integrityCount",
-  ];
-
-  const transactionPreview = Object.fromEntries(keys.map((k) => [k, transaction[k] ?? null]));
-  transactionPreview.dueAt = new Date(transaction.dueAt);
-  transactionPreview.createdByUserId = transaction.createdBy.uid;
-  transactionPreview.targetFromId = transaction.targetFrom?.id ?? null;
-  transactionPreview.targetToId = transaction.targetTo?.id ?? null;
-  transactionPreview.payeeId = transaction.payee?.id ?? null;
-  transactionPreview.extraTargetId = transaction.extraTarget?.id ?? null;
-  transactionPreview.hasFiles = !!transaction.files?.length;
-  transactionPreview.hasAutoAllocated = !!transaction.extras?.autoAllocated;
-
-  if (transaction.reconciledAt) {
-    transactionPreview.reconciledAt = new Date(transaction.reconciledAt);
-  }
-
-  if (!transaction.completed) {
-    transactionPreview.editable = transaction.editable;
-  }
-
-  return transactionPreview;
-};
-
 const supported = (transaction: Transaction): void => {
   if (!["OUTFLOW", "INFLOW"].includes(transaction.type)) {
     throw new Error(
@@ -251,7 +179,6 @@ const supported = (transaction: Transaction): void => {
   }
 
   if (
-    transaction.frequency !== "ONE_OFF" ||
     transaction.splitId ||
     transaction.siblingTransactionId ||
     transaction.clonedToTransactionId ||
@@ -261,7 +188,7 @@ const supported = (transaction: Transaction): void => {
     transaction.files?.length
   ) {
     throw new Error(
-      "The transaction has links, repeats, splits, files, or extra behavior that bebu does not support"
+      "The transaction has links, splits, files, or extra behavior that bebu does not support"
     );
   }
 
@@ -276,70 +203,6 @@ const validateAmount = (amount: number): void => {
       "amountMinor must be a positive integer in minor units of the account currency"
     );
   }
-};
-
-const makeTarget = (
-  id: string,
-  kind: "account" | "category",
-  accounts: Record<string, Account>,
-  categories: Record<string, Category>
-): Target => {
-  requireId(id);
-
-  if (kind === "category") {
-    const category = categories[id];
-
-    if (!category || category.archived || category.deleted) {
-      throw new Error("Category not available");
-    }
-
-    if (category.type !== "DEFAULT") {
-      throw new Error(
-        "Card payments require a transfer. Special categories cannot receive expenses"
-      );
-    }
-
-    return { id, linkedObjectId: null, linkedObjectType: null, type: "CATEGORY" };
-  }
-
-  const account = accounts[id];
-
-  if (!account || account.archived || account.hidden || account.locked) {
-    throw new Error("Account is archived, hidden, locked, or missing");
-  }
-
-  if (
-    !["CREDIT_CARD", "SAVINGS", "CHECKING", "CASH", "CASH_ON_HAND", "INVESTMENT"].includes(
-      account.type
-    )
-  ) {
-    throw new Error(`Unsupported account type ${account.type}`);
-  }
-
-  const linked = Object.values(categories).filter((category) =>
-    category.linkedAccountIds?.includes(id)
-  );
-
-  if (linked.length > 1) {
-    throw new Error("Account has multiple linked categories");
-  }
-
-  if (account.linkedCategoryId !== undefined) {
-    const accountLink = z.string().nullable().parse(account.linkedCategoryId) || null;
-
-    if (accountLink !== (linked[0]?.id ?? null)) {
-      throw new Error(
-        "Account and category links disagree. Resolve the links in the app before this transaction"
-      );
-    }
-  }
-
-  return {
-    id,
-    linkedObjectId: linked[0]?.id ?? null,
-    linkedObjectType: linked.length ? "CATEGORY" : null,
-    type: account.type === "CREDIT_CARD" ? "CREDIT_CARD" : "GENERIC_ACCOUNT",
-  };
 };
 
 export class TransactionService {
@@ -563,18 +426,6 @@ export class TransactionService {
 
     return { ...result, automaticAllocation: false, summary, transactionId: id };
   }
-  indexPaths(transaction: Transaction): string[] {
-    const ids = [
-      this.client.stashId("TRANSACTIONS"),
-      transaction.periodId,
-      transaction.targetFrom?.id,
-      transaction.targetTo?.id,
-      transaction.payee?.id,
-      ...(transaction.tagIds || []),
-    ].filter((candidate): candidate is string => typeof candidate === "string");
-
-    return [...new Set(ids)].map((id) => `${this.client.budgetPath}/stashes/${id}`);
-  }
   async apply(
     plan: MutationPlan,
     transaction: Transaction,
@@ -583,118 +434,31 @@ export class TransactionService {
   ) {
     supported(transaction);
 
+    if (transaction.frequency !== "ONE_OFF") {
+      throw new Error("Creating or deleting a recurring transaction requires the native app");
+    }
+
     if (!transaction.periodId) {
       throw new Error("The transaction has no budget period. Select its month in the app");
     }
 
-    const periodPath = `${this.client.budgetPath}/periods/${transaction.periodId}`;
-    const entryResult = await plan.entry(periodPath);
-    const period = PeriodSchema.parse(entryResult.doc.data);
-    const amount = Math.abs(transaction.amount);
-    const delta = direction * amount;
+    await applyTransactionLedger(plan, transaction, direction, context);
     const accountPath = context.accounts.name;
     const categoryPath = context.categories.name;
-    const increment = (name: string, path: string[], n: number) => plan.increment(name, path, n);
 
-    const periodInc = (id: string, key: string, n: number) =>
-      increment(periodPath, ["balances", id, key], n);
-
-    const balance = (account: Target, n: number) =>
-      increment(accountPath, ["data", account.id, "balanceAmount"], n);
-
-    const history = (id: string, key: string, n: number) =>
-      increment(`${this.client.budgetPath}/stashes/${id}`, ["data", key, transaction.yearMonth], n);
-
-    const accountEffects = async (account: Target, n: number) => {
-      if (transaction.type === "INFLOW" && !transaction.cleared) {
-        await increment(accountPath, ["data", account.id, "unclearedBalanceAmount"], n);
-
-        return;
-      }
-
-      if (transaction.type === "INFLOW") {
-        incomeHistoryMonth(transaction);
-      }
-
-      await balance(account, n);
-
-      if (!transaction.cleared) {
-        await increment(accountPath, ["data", account.id, "unclearedBalanceAmount"], n);
-      }
-
-      await history(account.id, "historicalBalances", n);
-    };
+    const increment = (name: string, path: string[], amount: number) =>
+      plan.increment(name, path, amount);
 
     const accountTargets = [transaction.targetFrom, transaction.targetTo].filter(
-      (t): t is Target => t !== null && t.type !== "CATEGORY"
+      (target): target is Target => target !== null && target.type !== "CATEGORY"
     );
 
     const categoryTargets = [transaction.targetFrom, transaction.targetTo].filter(
-      (t): t is Target => t !== null && t.type === "CATEGORY"
+      (target): target is Target => target !== null && target.type === "CATEGORY"
     );
 
-    for (const t of accountTargets) {
-      const a = context.accountMap[t.id];
-
-      if (a?.currencyCode && a.currencyCode !== context.user.config?.currencyCode) {
-        throw new Error("bebu does not support changes to foreign-currency ledgers");
-      }
-    }
-
-    if (transaction.type === "OUTFLOW") {
-      const from = requireTarget(transaction.targetFrom);
-      const to = requireTarget(transaction.targetTo);
-
-      if (transaction.completed) {
-        if (from.type === "CREDIT_CARD") {
-          if (!from.linkedObjectId) {
-            throw new Error("Credit card has no linked payment category");
-          }
-
-          if (direction > 0 && categoryAvailable(period.balances?.[to.id]) < amount) {
-            throw new Error(
-              "Fund the expense category first. bebu does not allocate funds automatically"
-            );
-          }
-
-          if (direction < 0 && categoryAvailable(period.balances?.[to.id]) < 0) {
-            throw new Error(
-              "bebu cannot reverse unfunded card spending. The reversal requires changes to fund allocation"
-            );
-          }
-
-          await periodInc(from.linkedObjectId, "otherAmount", delta);
-        }
-
-        await accountEffects(from, -delta);
-        await periodInc(to.id, "spentAmount", delta);
-        await history(to.id, "historicalSpending", delta);
-      } else {
-        await periodInc(to.id, "upcomingAmount", delta);
-      }
-    } else if (transaction.type === "INFLOW" && transaction.completed) {
-      await accountEffects(requireTarget(transaction.targetTo), delta);
-
-      // Native 51745 adds cleared zero-based income to allocation resources, independently of category allocation.
-      if (transaction.cleared && context.budget.data.type === "ZERO_BASED") {
-        await increment(periodPath, ["allocationAmount"], delta);
-      }
-    }
-
-    if (transaction.completed) {
-      for (const id of [transaction.payee?.id, ...transaction.tagIds].filter(
-        (candidate): candidate is string => typeof candidate === "string"
-      )) {
-        await history(id, "historicalBalances", direction * transaction.amount);
-
-        if (transaction.type === "OUTFLOW") {
-          await history(id, "historicalSpending", -direction * transaction.amount);
-        }
-      }
-    }
-
     const bucket = transaction.completed ? "completedTransactions" : "upcomingTransactions";
-    const paths = await this.indexPaths(transaction);
+    const paths = transactionIndexPaths(this.client, transaction);
 
     for (const path of paths) {
       const entry = await plan.entry(path);
@@ -706,7 +470,7 @@ export class TransactionService {
       await plan.set(
         path,
         ["data", bucket, transaction.id],
-        direction > 0 ? preview(transaction) : undefined
+        direction > 0 ? transactionPreview(transaction) : undefined
       );
 
       if (
@@ -771,108 +535,94 @@ export class TransactionService {
   }
   async update(id: string, input: TransactionPatch, options: CommitOptions = {}) {
     const changes = TransactionPatchSchema.parse(input);
+    const context = await this.context();
+    const plan = new MutationPlan(this.client);
+    const { doc } = await plan.entry(`${this.client.budgetPath}/transactions/${requireId(id)}`);
+    const transaction = TransactionSchema.parse(doc.data);
 
-    if (changes.color !== undefined) {
-      const stashResult2 = await this.client.stash("GROUPS_AND_CATEGORIES", CategoriesSchema);
-      const colors = stashResult2.data.data.categories;
+    if (transaction.id !== id || transaction.budgetId !== this.client.budgetId) {
+      throw new Error("The transaction identity does not match its document path");
+    }
+
+    if (transaction.splitId || transaction.reconciled || !transaction.editable) {
+      throw new Error("bebu changes only editable, unreconciled transactions without splits");
+    }
+
+    const metadata = new Set([
+      "notes",
+      "color",
+      "sentiment",
+      "latitude",
+      "longitude",
+      "reminderEnabled",
+      "reminderName",
+      "reminderDescription",
+    ]);
+
+    const financial = Object.keys(changes).some((key) => !metadata.has(key));
+
+    if (financial) {
+      requireIndependentTransaction(transaction, context.budget.data);
+      supported(transaction);
 
       if (
-        changes.color !== "NONE" &&
-        !Object.values(colors).some((context) => context.color === changes.color)
+        (transaction.type === "OUTFLOW" && transaction.amount >= 0) ||
+        (transaction.type === "INFLOW" && transaction.amount <= 0)
       ) {
-        throw new Error("Choose a color value from an existing category");
-      }
-    }
-
-    const budget = await this.client.discover();
-    const doc = await this.transaction(id);
-    const transaction = doc.data;
-
-    if (changes.cleared !== undefined && changes.cleared !== transaction.cleared) {
-      requireIndependentTransaction(transaction, budget.data);
-      supported(transaction);
-    }
-
-    if (transaction.splitId || transaction.frequency !== "ONE_OFF" || transaction.reconciled) {
-      throw new Error("bebu changes only unreconciled, one-off transactions");
-    }
-
-    const plan = new MutationPlan(this.client);
-
-    for (const [key, value] of Object.entries(changes)) {
-      await plan.set(doc.name, [key], value);
-    }
-
-    const bucket = transaction.completed ? "completedTransactions" : "upcomingTransactions";
-
-    for (const path of await this.indexPaths(transaction)) {
-      const e = await plan.entry(path);
-
-      if (!get(e.doc.data, ["data", bucket, id])) {
-        continue;
-      }
-
-      for (const [key, value] of Object.entries(changes)) {
-        await plan.set(path, ["data", bucket, id, key], value);
-      }
-    }
-
-    if (
-      transaction.completed &&
-      changes.cleared !== undefined &&
-      changes.cleared !== transaction.cleared
-    ) {
-      const direction = changes.cleared ? -1 : 1;
-      const from = transaction.targetFrom;
-      const to = transaction.targetTo;
-      const accountPath = `${this.client.budgetPath}/stashes/${this.client.stashId("ACCOUNTS")}`;
-
-      if (transaction.type === "INFLOW") {
-        const account = requireTarget(to);
-        const month = incomeHistoryMonth(transaction);
-        const delta = -direction * transaction.amount;
-        await plan.increment(accountPath, ["data", account.id, "balanceAmount"], delta);
-        await plan.increment(
-          `${this.client.budgetPath}/stashes/${account.id}`,
-          ["data", "historicalBalances", month],
-          delta
+        throw new Error(
+          "The stored transaction amount has an unexpected sign. Resolve it in the app"
         );
       }
+    }
 
-      if (transaction.type === "INFLOW" && budget.data.type === "ZERO_BASED") {
-        if (!transaction.periodId) {
-          throw new Error(
-            "The income has no budget period. Resolve it in the app before changing cleared status"
-          );
+    const after = await editTransaction(this.client, transaction, changes, context);
+
+    const ledgerFields = [
+      "amount",
+      "cleared",
+      "dueAt",
+      "timezone",
+      "periodId",
+      "yearMonth",
+      "targetFrom",
+      "targetTo",
+      "payee",
+      "tagIds",
+    ];
+
+    const ledgerChanged = ledgerFields.some(
+      (key) => JSON.stringify(transaction[key]) !== JSON.stringify(after[key])
+    );
+
+    if (ledgerChanged) {
+      await applyTransactionLedger(plan, transaction, -1, context);
+      await applyTransactionLedger(plan, after, 1, context);
+    }
+
+    for (const [key, value] of Object.entries(after)) {
+      if (JSON.stringify(value) !== JSON.stringify(transaction[key])) {
+        let stored = value;
+
+        if (key === "dueAt") {
+          stored = new Date(after.dueAt);
         }
 
-        await plan.increment(
-          `${this.client.budgetPath}/periods/${transaction.periodId}`,
-          ["allocationAmount"],
-          -direction * transaction.amount
-        );
-      }
+        if (key === "occurrenceChange" && after.occurrenceChange) {
+          const occurrence = after.occurrenceChange;
+          stored = {
+            ...occurrence,
+            dueAt: occurrence.dueAt === null ? null : new Date(occurrence.dueAt),
+            seriesAnchorAt:
+              occurrence.seriesAnchorAt === null ? null : new Date(occurrence.seriesAnchorAt),
+          };
+        }
 
-      if (from && from.type !== "CATEGORY") {
-        await plan.increment(
-          accountPath,
-          ["data", from.id, "unclearedBalanceAmount"],
-          direction * transaction.amount
-        );
-      }
-
-      if (to && to.type !== "CATEGORY") {
-        await plan.increment(
-          accountPath,
-          ["data", to.id, "unclearedBalanceAmount"],
-          direction * (transaction.type === "TRANSFER" ? -transaction.amount : transaction.amount)
-        );
+        await plan.set(doc.name, [key], stored);
       }
     }
 
-    const summary = options.dryRun
-      ? transactionSummary(plan, transaction, { ...transaction, ...changes })
-      : undefined;
+    await updateTransactionIndexes(plan, transaction, after, context);
+    const summary = options.dryRun ? transactionSummary(plan, transaction, after) : undefined;
 
     return {
       ...(await this.client.commit(plan.writes(), options)),

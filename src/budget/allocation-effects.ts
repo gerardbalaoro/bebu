@@ -24,7 +24,7 @@ export const requireIndependentTransaction = (transaction: Transaction, budget: 
 
   if (allocationPossible) {
     throw new Error(
-      "This transaction has confirmed or possible native allocation effects. bebu cannot reverse or change those effects yet. Use the app for deletion or clearing changes; notes and color remain editable"
+      "This transaction has confirmed or possible native allocation effects. bebu cannot reverse or change those effects yet. Use the app for deletion, financial edits, or schedule edits; metadata remains editable"
     );
   }
 };

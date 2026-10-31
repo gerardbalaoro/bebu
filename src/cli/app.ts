@@ -199,7 +199,7 @@ const accountsCommand = defineCommand(
 
 const transactionsCommand = defineCommand(
   "transactions",
-  { description: "Read history and write one-off expenses or income" },
+  { description: "Read history and edit expenses, income, and upcoming recurring payments" },
   (command) =>
     command
       .add(
@@ -247,7 +247,10 @@ const transactionsCommand = defineCommand(
                         "completed",
                         "cleared",
                         "dueAt",
+                        "frequency",
                         "notes",
+                        "repeatCount",
+                        "sequenceCount",
                       ]),
                       fromId: transaction.targetFrom?.id,
                       toId: transaction.targetTo?.id,
@@ -295,7 +298,21 @@ const transactionsCommand = defineCommand(
         defineCommand(
           "update",
           {
-            description: "Change notes, color, or cleared status in the record and its indexes",
+            description: "Edit transaction amounts, details, dates, and upcoming recurrence rules",
+            sections: [
+              {
+                body: "Use schema for the complete transactionUpdate payload. amountMinor is a positive integer; the CLI preserves the expense or income sign. Editable fields include accountId, categoryId, payeeId (null removes it), tagIds ([] removes all), dueAt, timezone, notes, color, cleared, sentiment, location, and reminder details. Balances, history, indexes, and usage counts change atomically.",
+                title: "Editable fields",
+              },
+              {
+                body: "Upcoming entries also accept frequency, repeatCount, and nonWorkingDayPolicy. repeatCount is a total sequence limit; null or zero means unlimited. A positive limit is at least sequenceCount + 1. Changing frequency resets sequenceCount to 1 and repeatCount to unlimited unless a new limit is supplied.\n\nFor an upcoming recurring amount or date edit, recurrenceScope selects THIS_PAYMENT or THIS_AND_LATER (default). THIS_PAYMENT preserves the series baseline for later payments. Only the selected canonical entry changes; already-created occurrences require separate edits.\n\ndueAt accepts an ISO timestamp with an explicit offset. The CLI keeps its time of day and calculates dates in the stored transaction timezone, or the supplied timezone. Weekend policies adjust future dates and retain their original schedule anchors. DAILY workday repeats always shift forward. Upcoming months without saved periods remain periodless. This command does not complete payments or generate occurrences.",
+                title: "Recurring payments",
+              },
+              {
+                body: "Financial and schedule edits support editable, unreconciled expenses and income without splits, files, cloned links, refunds, or native allocation effects. Account and category links must agree. Foreign-currency ledgers require the app. Completed entries cannot change recurrence rules or move to future dates. A completed entry needs an existing destination budget period. Notes, color, sentiment, location, and reminder metadata remain editable within the record's other restrictions.\n\nInspect --dry-run before committing. The summary includes old and new accounts, category funds, monthly obligations, and allocation resources. Add --full for exact writes and version preconditions.",
+                title: "Restrictions",
+              },
+            ],
           },
           (leaf) =>
             leaf
@@ -637,7 +654,7 @@ export const createApp = (): AnyCrust => {
         title: "Browser session",
       },
       {
-        body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu changes only one-off expenses and income without reconciliation. Transfers, splits, repeats, refunds, debts, files, and linked transactions require separate flows. For manual allocations, use allocations set --dry-run followed by allocations apply with the saved plan and an explicit request ID. A completed card expense requires a category with enough funds.\n\nTransaction metadata changes accept notes, color, and cleared. The --request-id flag identifies the atomic commit and its save marker.\n\nFor an identical retry, reuse --request-id and the original payload. For a different operation, use a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves marker existence only. Marker expiry and validation before the commit also limit retries.",
+        body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu creates and deletes one-off expenses and income. Updates also support existing upcoming recurring payments. Transfers, splits, refunds, debts, files, reconciliation, and linked allocation effects require separate flows. For manual allocations, use allocations set --dry-run followed by allocations apply with the saved plan and an explicit request ID. A completed card expense requires a category with enough funds.\n\nTransaction updates accept amounts, accounts, categories, payees, tags, dates, cleared status, and metadata. Upcoming entries also accept recurrence rules. Read transactions update --help for scope and restrictions. The --request-id flag identifies the atomic commit and its save marker.\n\nFor an identical retry, reuse --request-id and the original payload. For a different operation, use a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves marker existence only. Marker expiry and validation before the commit also limit retries.",
         title: "Write rules",
       },
     ],

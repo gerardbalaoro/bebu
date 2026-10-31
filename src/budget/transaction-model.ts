@@ -14,8 +14,16 @@ const TargetSchema = z.object({
 
 export type Target = z.infer<typeof TargetSchema>;
 
+const OccurrenceChangeSchema = z.object({
+  amount: z.number().int().nullable().default(null),
+  dueAt: z.string().nullable().default(null),
+  seriesAmount: z.number().int().nullable().default(null),
+  seriesAnchorAt: z.string().nullable().default(null),
+});
+
 export const TransactionSchema = z.looseObject({
   amount: z.number().int().min(-Number.MAX_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER),
+  anchorDay: z.number().int().nullish(),
   autoAllocateIfCapable: z.boolean(),
   autoAllocateIfIncome: z.boolean().optional(),
   budgetId: z.string(),
@@ -44,7 +52,8 @@ export const TransactionSchema = z.looseObject({
   longitude: z.number().nullable(),
   nonWorkingDayPolicy: z.string(),
   notes: z.string(),
-  offsetAdjustment: z.number(),
+  occurrenceChange: OccurrenceChangeSchema.nullish(),
+  offsetAdjustment: z.number().int(),
   payee: TargetSchema.nullable(),
   periodId: ObjectIdSchema.nullish(),
   reconciled: z.boolean(),
@@ -90,11 +99,51 @@ export const TransactionCreateSchema = z.strictObject({
 
 export const TransactionPatchSchema = z
   .strictObject({
+    accountId: ObjectIdSchema.optional(),
+    amountMinor: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    categoryId: ObjectIdSchema.optional(),
     cleared: z.boolean().optional(),
     color: z.string().optional(),
+    dueAt: z.iso.datetime({ offset: true }).optional(),
+    frequency: z
+      .enum([
+        "ONE_OFF",
+        "DAILY",
+        "WEEKLY",
+        "FORTNIGHTLY",
+        "FOUR_WEEKLY",
+        "MONTHLY",
+        "TWO_MONTHLY",
+        "QUARTERLY",
+        "HALF_YEARLY",
+        "ANNUALLY",
+        "BIENNIALLY",
+      ])
+      .optional(),
+    latitude: z.number().min(-90).max(90).nullable().optional(),
+    longitude: z.number().min(-180).max(180).nullable().optional(),
+    nonWorkingDayPolicy: z
+      .enum([
+        "KEEP_ORIGINAL_DATE",
+        "SHIFT_TO_NEXT_AVAILABLE_WORKDAY",
+        "SHIFT_TO_PREVIOUS_AVAILABLE_WORKDAY",
+      ])
+      .optional(),
     notes: z.string().max(400).optional(),
+    payeeId: ObjectIdSchema.nullable().optional(),
+    recurrenceScope: z.enum(["THIS_PAYMENT", "THIS_AND_LATER"]).optional(),
+    reminderDescription: z.string().nullable().optional(),
+    reminderEnabled: z.boolean().optional(),
+    reminderName: z.string().nullable().optional(),
+    repeatCount: z.number().int().nonnegative().nullable().optional(),
+    sentiment: z.enum(["NONE", "THUMBS_UP", "THUMBS_DOWN"]).optional(),
+    tagIds: z
+      .array(ObjectIdSchema)
+      .refine((ids) => new Set(ids).size === ids.length, "tagIds must be unique")
+      .optional(),
+    timezone: z.string().min(1).optional(),
   })
-  .refine((value) => Object.keys(value).length > 0, "Provide notes, color, or cleared");
+  .refine((value) => Object.keys(value).length > 0, "Provide at least one transaction field");
 
 export const UserSchema = z.looseObject({
   config: z

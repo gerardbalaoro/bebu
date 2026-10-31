@@ -26,12 +26,17 @@ Reallocation, undo, automatic income allocation, and smart allocation writes rem
 
 Transaction dry runs show account balances, category funds, payment reserves, and allocation
 resources. Cleared, completed zero-based income increases allocation resources but does not fund
-categories. Transactions with possible native allocation effects reject deletion and clearing
-changes.
+categories. Transactions with possible native allocation effects reject deletion, financial edits,
+and schedule edits.
 
 Uncleared income changes only the uncleared account balance. Clearing moves the amount into the
 cleared balance and account history. Unclearing reverses those movements. Income history requires
 agreement between the stored month and the due-date month in the CLI runtime timezone.
+
+[Transaction Editing](transaction-editing.md) records supported amount, assignment, date, and
+recurrence edits. Upcoming records without saved periods remain periodless. Creating and deleting
+recurring transactions, completing payments, and generating occurrences remain separate native
+workflows.
 
 ## Data Model
 

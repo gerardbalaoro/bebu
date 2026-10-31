@@ -80,9 +80,16 @@ automaticAllocation:false. Add --full to inspect the Firestore writes and precon
 describes the current snapshots. A later command reads fresh snapshots and can produce different
 results.
 
-Transactions with confirmed or possible native allocation effects reject deletion and clearing
-changes. Notes and color remain editable within the command's other restrictions. Do not remove
-allocation flags or history to bypass a rejection.
+Use transactions update for amounts, account/category assignments, payees, tags, dates, cleared
+status, and metadata. For upcoming recurring entries, it also accepts frequency, repeatCount, and
+nonWorkingDayPolicy. Use recurrenceScope THIS_PAYMENT for one upcoming amount/date override;
+THIS_AND_LATER is the default. Existing generated occurrences require separate edits. The update
+command does not complete payments or generate occurrences. Read transactions update before editing
+a schedule. The CLI handles workday shifts, repeat limits, and month-end anchors.
+
+Transactions with confirmed or possible native allocation effects reject deletion, financial edits,
+and schedule edits. Notes, color, sentiment, location, and reminder metadata remain editable within
+the command's other restrictions. Do not remove allocation flags or history to bypass a rejection.
 
 For an identical retry, reuse the request ID and original payload. For a different operation, use a
 new request ID. For create retries, preserve the resolved id, dueAt, timezone, completed, and
@@ -133,9 +140,9 @@ deletion. After marker expiry, duplicate detection is not guaranteed.
 | `bebu tags list`             | runnable | List IDs and usage counts for tags                                                                     | [commands/tags/list.md](commands/tags/list.md)                         |
 | `bebu targets`               | group    | Inspect stored category targets                                                                        | [commands/targets.md](commands/targets.md)                             |
 | `bebu targets list`          | runnable | Read target settings separately from category funds                                                    | [commands/targets/list.md](commands/targets/list.md)                   |
-| `bebu transactions`          | group    | Read history and write one-off expenses or income                                                      | [commands/transactions.md](commands/transactions.md)                   |
+| `bebu transactions`          | group    | Read history and edit expenses, income, and upcoming recurring payments                                | [commands/transactions.md](commands/transactions.md)                   |
 | `bebu transactions create`   | runnable | Create an expense or income with all ledger changes. The command does not allocate funds automatically | [commands/transactions/create.md](commands/transactions/create.md)     |
 | `bebu transactions delete`   | runnable | Delete a supported transaction and reverse its ledger effects atomically                               | [commands/transactions/delete.md](commands/transactions/delete.md)     |
 | `bebu transactions list`     | runnable | Read the complete history, including older records absent from the app cache                           | [commands/transactions/list.md](commands/transactions/list.md)         |
 | `bebu transactions show`     | runnable | Read a complete transaction record                                                                     | [commands/transactions/show.md](commands/transactions/show.md)         |
-| `bebu transactions update`   | runnable | Change notes, color, or cleared status in the record and its indexes                                   | [commands/transactions/update.md](commands/transactions/update.md)     |
+| `bebu transactions update`   | runnable | Edit transaction amounts, details, dates, and upcoming recurrence rules                                | [commands/transactions/update.md](commands/transactions/update.md)     |

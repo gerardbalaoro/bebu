@@ -86,8 +86,14 @@ Before a transaction change, inspect --dry-run. The summary shows metadata, acco
 The summary explicitly reports automaticAllocation:false. Add --full to inspect the Firestore writes and preconditions.
 A preview describes the current snapshots. A later command reads fresh snapshots and can produce different results.
 
-Transactions with confirmed or possible native allocation effects reject deletion and clearing changes.
-Notes and color remain editable within the command's other restrictions. Do not remove allocation flags or history to bypass a rejection.
+Use transactions update for amounts, account/category assignments, payees, tags, dates, cleared status, and metadata.
+For upcoming recurring entries, it also accepts frequency, repeatCount, and nonWorkingDayPolicy.
+Use recurrenceScope THIS_PAYMENT for one upcoming amount/date override; THIS_AND_LATER is the default.
+Existing generated occurrences require separate edits. The update command does not complete payments or generate occurrences.
+Read transactions update before editing a schedule. The CLI handles workday shifts, repeat limits, and month-end anchors.
+
+Transactions with confirmed or possible native allocation effects reject deletion, financial edits, and schedule edits.
+Notes, color, sentiment, location, and reminder metadata remain editable within the command's other restrictions. Do not remove allocation flags or history to bypass a rejection.
 
 For an identical retry, reuse the request ID and original payload. For a different operation, use a new request ID.
 For create retries, preserve the resolved id, dueAt, timezone, completed, and cleared fields.

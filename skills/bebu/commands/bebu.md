@@ -43,14 +43,15 @@ Before a change:
 2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect
    all writes.
 
-Amounts use integer minor units (PHP centavos). bebu changes only one-off expenses and income
-without reconciliation. Transfers, splits, repeats, refunds, debts, files, and linked transactions
-require separate flows. For manual allocations, use allocations set --dry-run followed by
-allocations apply with the saved plan and an explicit request ID. A completed card expense requires
-a category with enough funds.
+Amounts use integer minor units (PHP centavos). bebu creates and deletes one-off expenses and
+income. Updates also support existing upcoming recurring payments. Transfers, splits, refunds,
+debts, files, reconciliation, and linked allocation effects require separate flows. For manual
+allocations, use allocations set --dry-run followed by allocations apply with the saved plan and an
+explicit request ID. A completed card expense requires a category with enough funds.
 
-Transaction metadata changes accept notes, color, and cleared. The --request-id flag identifies the
-atomic commit and its save marker.
+Transaction updates accept amounts, accounts, categories, payees, tags, dates, cleared status, and
+metadata. Upcoming entries also accept recurrence rules. Read transactions update --help for scope
+and restrictions. The --request-id flag identifies the atomic commit and its save marker.
 
 For an identical retry, reuse --request-id and the original payload. For a different operation, use
 a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves
@@ -70,7 +71,8 @@ marker existence only. Marker expiry and validation before the commit also limit
 - [`skills`](skills.md) - Generate or install the bebu agent skill
 - [`tags`](tags.md) - Read tags
 - [`targets`](targets.md) - Inspect stored category targets
-- [`transactions`](transactions.md) - Read history and write one-off expenses or income
+- [`transactions`](transactions.md) - Read history and edit expenses, income, and upcoming recurring
+  payments
 
 ---
 
