@@ -16,7 +16,8 @@ import type { CommitResult, Data, Write } from "../firestore/encoding.ts";
 import { AccountService } from "./accounts.ts";
 import { budgetDiagnostics } from "./diagnostics.ts";
 import { categoryFunding } from "./funding.ts";
-import type { TransactionPatch } from "./transaction-model.ts";
+import { TransactionCreateSchema } from "./transaction-model.ts";
+import type { TransactionCreate, TransactionPatch } from "./transaction-model.ts";
 import { TransactionService } from "./transactions.ts";
 
 const budgetPath = "projects/beyond-budget/databases/(default)/documents/budgets/testBudget";
@@ -2400,3 +2401,551 @@ test.each([
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   }
 );
+
+test.each([
+  "DAILY",
+  "WEEKLY",
+  "FORTNIGHTLY",
+  "FOUR_WEEKLY",
+  "MONTHLY",
+  "TWO_MONTHLY",
+  "QUARTERLY",
+  "HALF_YEARLY",
+  "ANNUALLY",
+  "BIENNIALLY",
+])(
+  "creating %s recurrence saves an initial upcoming entry and mirrors its schedule",
+  async (frequency) => {
+    const { service, calls } = fixture();
+
+    const input = {
+      accountId: "card",
+      amountMinor: 300,
+      categoryId: "spend",
+      dueAt: timestamp,
+      frequency,
+      id: transactionId,
+      payeeId: "shop",
+      tagIds: ["trip"],
+    } satisfies TransactionCreate;
+
+    const result = await service.create(input, { dryRun: true });
+    const writes = writesFrom(result);
+    expect(writeAt(writes, `transactions/${transactionId}`)).toMatchObject({
+      currentDocument: { exists: false },
+      update: {
+        fields: {
+          clonedToTransactionId: { nullValue: null },
+          completed: { booleanValue: false },
+          frequency: { stringValue: frequency },
+          occurrenceChange: { nullValue: null },
+          repeatCount: { nullValue: null },
+          sequenceCount: { integerValue: "1" },
+          version: { nullValue: null },
+        },
+      },
+    });
+    expect(result.summary).toMatchObject({
+      accounts: [],
+      transaction: {
+        after: {
+          completed: false,
+          frequency,
+          sequenceCount: 1,
+        },
+      },
+    });
+    expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual([
+      { fieldPath: "balances.spend.upcomingAmount", increment: { integerValue: "300" } },
+    ]);
+
+    for (const index of ["transactionsIndex", "periodOne", "card", "spend", "shop", "trip"]) {
+      expect(writeAt(writes, `stashes/${index}`).updateMask?.fieldPaths).toContain(
+        `data.upcomingTransactions.${transactionId}`
+      );
+      expect(
+        writeAt(writes, `stashes/${index}`).updateTransforms?.some((transform) =>
+          /historical|completedTransactionCount/u.test(transform.fieldPath)
+        ) ?? false
+      ).toBe(false);
+    }
+
+    expect(writeAt(writes, "stashes/accountsIndex").updateTransforms).toEqual([
+      { fieldPath: "data.card.transactionCount", increment: { integerValue: "1" } },
+    ]);
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+  }
+);
+
+test("recurring creation shifts a weekend into a periodless month while retaining the monthly anchor", async () => {
+  const { service, calls } = fixture();
+
+  const input = {
+    accountId: "cash",
+    amountMinor: 300,
+    categoryId: "spend",
+    dueAt: "2030-08-31T10:15:00+08:00",
+    frequency: "MONTHLY",
+    id: transactionId,
+    nonWorkingDayPolicy: "SHIFT_TO_NEXT_AVAILABLE_WORKDAY",
+    repeatCount: 6,
+    timezone: "Asia/Manila",
+  } satisfies TransactionCreate;
+
+  const result = await service.create(input, { dryRun: true });
+  expect(result.summary).toMatchObject({
+    accounts: [],
+    categories: [],
+    transaction: {
+      after: {
+        anchorDay: 31,
+        dueAt: "2030-09-02T02:15:00.000Z",
+        offsetAdjustment: 2,
+        periodId: null,
+        repeatCount: 6,
+        sequenceCount: 1,
+        yearMonth: "2030-09",
+      },
+    },
+  });
+  const writes = writesFrom(result);
+  expect(writes.some((write) => write.update?.name.includes("/periods/") === true)).toBe(false);
+  expect(
+    writes.filter((write) => write.update?.name.includes("/transactions/") === true)
+  ).toHaveLength(1);
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test.each([null, 0, 12])(
+  "recurring creation normalizes repeat limit %s without incrementing the initial sequence",
+  async (repeatCount) => {
+    const { service } = fixture();
+
+    const input = {
+      accountId: "cash",
+      amountMinor: 100,
+      dueAt: timestamp,
+      frequency: "MONTHLY",
+      repeatCount,
+      type: "INFLOW" as const,
+    } satisfies TransactionCreate;
+
+    const result = await service.create(input, { dryRun: true });
+    expect(result.summary).toMatchObject({
+      accounts: [],
+      transaction: {
+        after: {
+          completed: false,
+          repeatCount: repeatCount === 0 ? null : repeatCount,
+          sequenceCount: 1,
+        },
+      },
+    });
+  }
+);
+
+test("an ongoing new series cannot be marked completed without a generated successor", async () => {
+  const { service, calls } = fixture();
+
+  const input = {
+    accountId: "card",
+    amountMinor: 100,
+    categoryId: "spend",
+    completed: true,
+    dueAt: timestamp,
+    frequency: "MONTHLY",
+  } satisfies TransactionCreate;
+
+  await assert.rejects(
+    service.create(input, { dryRun: true }),
+    /recurring.*completed|completed.*recurring/iu
+  );
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test.each([
+  { frequency: "FORTNIGHT" },
+  { frequency: "MONTHLY", repeatCount: -1 },
+  { frequency: "MONTHLY", repeatCount: 1.5 },
+  { frequency: "MONTHLY", repeatCount: Number.MAX_SAFE_INTEGER + 1 },
+  { frequency: "MONTHLY", nonWorkingDayPolicy: "HOLIDAYS" },
+  { frequency: "ONE_OFF", repeatCount: 3 },
+  { nonWorkingDayPolicy: "SHIFT_TO_PREVIOUS_AVAILABLE_WORKDAY" },
+])("invalid recurrence creation rules fail before committing: %j", async (rules) => {
+  const { service, calls } = fixture();
+
+  const input = {
+    accountId: "cash",
+    amountMinor: 100,
+    categoryId: "spend",
+    dueAt: timestamp,
+    ...rules,
+  };
+
+  await assert.rejects(async () => {
+    await service.create(TransactionCreateSchema.parse(input), { dryRun: true });
+  });
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test.each([
+  {
+    adjusted: "2030-09-02T12:00:00.000Z",
+    anchor: null,
+    dueAt: "2030-08-31T12:00:00Z",
+    frequency: "DAILY",
+    offset: 2,
+    policy: "SHIFT_TO_PREVIOUS_AVAILABLE_WORKDAY",
+  },
+  {
+    adjusted: "2030-08-30T12:00:00.000Z",
+    anchor: null,
+    dueAt: "2030-08-31T12:00:00Z",
+    frequency: "WEEKLY",
+    offset: -1,
+    policy: "SHIFT_TO_PREVIOUS_AVAILABLE_WORKDAY",
+  },
+  {
+    adjusted: "2030-08-31T12:00:00.000Z",
+    anchor: 31,
+    dueAt: "2030-08-31T12:00:00Z",
+    frequency: "MONTHLY",
+    offset: 0,
+    policy: "KEEP_ORIGINAL_DATE",
+  },
+])(
+  "new $frequency schedules apply $policy and retain their logical anchor",
+  async ({ dueAt, frequency, policy, adjusted, offset, anchor }) => {
+    const { service } = fixture();
+
+    const input = {
+      accountId: "cash",
+      amountMinor: 100,
+      categoryId: "spend",
+      dueAt,
+      frequency,
+      nonWorkingDayPolicy: policy,
+      timezone: "UTC",
+    } satisfies TransactionCreate;
+
+    const result = await service.create(input, { dryRun: true });
+    expect(result.summary?.transaction.after).toMatchObject({
+      anchorDay: anchor,
+      dueAt: adjusted,
+      offsetAdjustment: offset,
+      periodId: null,
+    });
+  }
+);
+
+test("a workday-adjusted recurrence uses the destination saved period, not the original month", async () => {
+  const { service, documents } = fixture();
+  documents.set(budgetPath, {
+    ...documents.get(budgetPath),
+    availablePeriods: { "2030-09": { id: "periodOne" } },
+  });
+
+  const input = {
+    accountId: "card",
+    amountMinor: 100,
+    categoryId: "spend",
+    dueAt: "2030-08-31T12:00:00Z",
+    frequency: "MONTHLY",
+    id: transactionId,
+    nonWorkingDayPolicy: "SHIFT_TO_NEXT_AVAILABLE_WORKDAY",
+    timezone: "UTC",
+  } satisfies TransactionCreate;
+
+  const result = await service.create(input, { dryRun: true });
+  expect(result.summary).toMatchObject({
+    categories: [{ after: { upcomingAmount: 100 }, id: "spend", yearMonth: "2030-09" }],
+    transaction: { after: { periodId: "periodOne", yearMonth: "2030-09" } },
+  });
+  const writes = writesFrom(result);
+  expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual([
+    { fieldPath: "balances.spend.upcomingAmount", increment: { integerValue: "100" } },
+  ]);
+  expect(writeAt(writes, "stashes/periodOne").updateMask?.fieldPaths).toContain(
+    `data.upcomingTransactions.${transactionId}`
+  );
+});
+
+test("a single-payment repeat already due records completed card effects without generating a successor", async () => {
+  const { service } = fixture();
+
+  const input = {
+    accountId: "card",
+    amountMinor: 100,
+    categoryId: "spend",
+    dueAt: timestamp,
+    frequency: "MONTHLY",
+    id: transactionId,
+    repeatCount: 1,
+  } satisfies TransactionCreate;
+
+  const result = await service.create(input, { dryRun: true });
+  expect(result.summary).toMatchObject({
+    accounts: [{ balanceAmount: { delta: -100 }, id: "card" }],
+    transaction: { after: { completed: true, repeatCount: 1, sequenceCount: 1 } },
+  });
+  const writes = writesFrom(result);
+  expect(writeAt(writes, "periods/periodOne").updateTransforms).toEqual([
+    { fieldPath: "balances.cardCategory.otherAmount", increment: { integerValue: "100" } },
+    { fieldPath: "balances.spend.spentAmount", increment: { integerValue: "100" } },
+  ]);
+  expect(writeAt(writes, `transactions/${transactionId}`).update?.fields?.version).toEqual({
+    integerValue: "1",
+  });
+  expect(
+    writes.filter((write) => write.update?.name.includes("/transactions/") === true)
+  ).toHaveLength(1);
+});
+
+test("a future single-payment repeat stays upcoming and does not require a saved period", async () => {
+  const { service } = fixture();
+
+  const input = {
+    accountId: "cash",
+    amountMinor: 100,
+    dueAt: "2030-01-31T12:00:00Z",
+    frequency: "MONTHLY",
+    repeatCount: 1,
+    type: "INFLOW" as const,
+  } satisfies TransactionCreate;
+
+  const result = await service.create(input, { dryRun: true });
+  expect(result.summary).toMatchObject({
+    accounts: [],
+    allocationPeriods: [],
+    categories: [],
+    transaction: {
+      after: { anchorDay: 31, completed: false, periodId: null, repeatCount: 1, sequenceCount: 1 },
+    },
+  });
+});
+
+test("periodless recurring refunds retain their positive signed amount without moving debt or reserves", async () => {
+  const { service } = fixture();
+
+  const input = {
+    accountId: "card",
+    amountMinor: 100,
+    categoryId: "spend",
+    dueAt: "2030-01-31T12:00:00Z",
+    frequency: "MONTHLY",
+    id: transactionId,
+    type: "REFUND" as const,
+  } satisfies TransactionCreate;
+
+  const result = await service.create(input, { dryRun: true });
+  expect(result.summary).toMatchObject({
+    accounts: [],
+    categories: [],
+    transaction: {
+      after: {
+        amount: 100,
+        completed: false,
+        subType: "REFUND",
+        type: "OUTFLOW",
+      },
+    },
+  });
+  expect(
+    writeAt(writesFrom(result), `transactions/${transactionId}`).update?.fields
+      ?.autoAllocateIfCapable
+  ).toEqual({ booleanValue: false });
+});
+
+test("invalid recurrence timezones and unsupported linked categories cannot produce a commit", async () => {
+  const { service, documents, calls } = fixture();
+
+  const input = {
+    accountId: "cash",
+    amountMinor: 100,
+    categoryId: "spend",
+    dueAt: "2030-01-31T12:00:00Z",
+    frequency: "MONTHLY",
+  } satisfies TransactionCreate;
+
+  await assert.rejects(
+    service.create({ ...input, timezone: "invalid/timezone" }, { dryRun: true })
+  );
+  documents.set(`${budgetPath}/stashes/categoriesIndex`, {
+    data: {
+      categories: {
+        spend: { id: "spend", linkedAccountIds: ["cash"], type: "DEFAULT" },
+      },
+    },
+  });
+  await assert.rejects(service.create(input, { dryRun: true }), /linked/u);
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("recurring creation commits one canonical entry, its obligations and indexes with a save marker", async () => {
+  const { fetcher } = fixture();
+  const requests: Data[] = [];
+
+  const boundary: Fetcher = async (input, init) => {
+    const request = new Request(input, init);
+
+    if (request.method === "GET") {
+      return await fetcher(input, init);
+    }
+
+    assert.equal(new URL(request.url).pathname.endsWith("/documents:commit"), true);
+    requests.push(z.object({ writes: z.array(z.unknown()) }).parse(await request.json()));
+
+    return Response.json({ commitTime: timestamp });
+  };
+
+  const service = new TransactionService(
+    new BeyondClient(structuredClone(session), { fetcher: boundary })
+  );
+
+  const input = {
+    accountId: "card",
+    amountMinor: 300,
+    categoryId: "spend",
+    dueAt: timestamp,
+    frequency: "MONTHLY",
+    id: transactionId,
+  } satisfies TransactionCreate;
+
+  const result = await service.create(input, { requestId: transactionId });
+  expect(result).toMatchObject({ committed: true, transactionId });
+  expect(requests).toHaveLength(1);
+
+  const body = z
+    .object({
+      writes: z.array(
+        z.looseObject({
+          update: z.object({
+            fields: z.record(z.string(), z.unknown()).optional(),
+            name: z.string(),
+          }),
+        })
+      ),
+    })
+    .parse(requests[0]);
+
+  const canonical = body.writes.find(
+    (write) => write.update.name === `${budgetPath}/transactions/${transactionId}`
+  );
+
+  expect(canonical).toMatchObject({
+    currentDocument: { exists: false },
+    update: {
+      fields: {
+        completed: { booleanValue: false },
+        frequency: { stringValue: "MONTHLY" },
+        sequenceCount: { integerValue: "1" },
+      },
+    },
+  });
+
+  const period = body.writes.find(
+    (write) => write.update.name === `${budgetPath}/periods/periodOne`
+  );
+
+  expect(period).toMatchObject({
+    updateTransforms: [
+      { fieldPath: "balances.spend.upcomingAmount", increment: { integerValue: "300" } },
+    ],
+  });
+  expect(
+    body.writes.some((write) => write.update.name === `${budgetPath}/saveMarkers/${transactionId}`)
+  ).toBe(true);
+
+  for (const id of ["transactionsIndex", "periodOne", "card", "spend"]) {
+    expect(body.writes.some((write) => write.update.name === `${budgetPath}/stashes/${id}`)).toBe(
+      true
+    );
+  }
+});
+
+test("CLI create accepts recurrence JSON and previews a periodless first occurrence", async () => {
+  const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-recurring-create-cli-"));
+  const previous = process.env.BEBU_SESSION_FILE;
+  const { fetcher, calls } = fixture();
+
+  const fetchMock = spyOn(globalThis, "fetch").mockImplementation(
+    Object.assign(fetcher, { preconnect: fetch.preconnect })
+  );
+
+  process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+
+  try {
+    await writeFile(process.env.BEBU_SESSION_FILE, JSON.stringify(session));
+    const file = nodePath.join(directory, "recurring.json");
+    await writeFile(
+      file,
+      JSON.stringify({
+        accountId: "card",
+        amountMinor: 100,
+        categoryId: "spend",
+        dueAt: "2030-01-31T12:00:00+08:00",
+        frequency: "MONTHLY",
+        repeatCount: 6,
+        timezone: "Asia/Manila",
+      })
+    );
+
+    const result = await captureExecute(createApp(), [
+      "transactions",
+      "create",
+      "--file",
+      file,
+      "--dry-run",
+      "--full",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      dryRun: true,
+      summary: {
+        accounts: [],
+        transaction: {
+          after: {
+            anchorDay: 31,
+            frequency: "MONTHLY",
+            periodId: null,
+            repeatCount: 6,
+            sequenceCount: 1,
+          },
+        },
+      },
+    });
+    expect(JSON.parse(result.stdout)).toHaveProperty("body.writes", expect.any(Array));
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+  } finally {
+    fetchMock.mockRestore();
+
+    if (previous === undefined) {
+      delete process.env.BEBU_SESSION_FILE;
+    } else {
+      process.env.BEBU_SESSION_FILE = previous;
+    }
+
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test("completed single-payment recurrence still requires its historical budget period", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(budgetPath, { ...documents.get(budgetPath), availablePeriods: {} });
+  await assert.rejects(
+    service.create(
+      {
+        accountId: "card",
+        amountMinor: 100,
+        categoryId: "spend",
+        dueAt: timestamp,
+        frequency: "MONTHLY",
+        repeatCount: 1,
+      },
+      { dryRun: true }
+    ),
+    /period/u
+  );
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});

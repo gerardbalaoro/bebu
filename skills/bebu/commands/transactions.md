@@ -4,8 +4,8 @@ Read history and edit expenses, income, and upcoming recurring payments
 
 ## Subcommands
 
-- [`create`](transactions/create.md) - Create an expense, income, or card refund with all ledger
-  changes and no automatic allocation
+- [`create`](transactions/create.md) - Create one-off or recurring expenses, income, and card
+  refunds without automatic allocation
 - [`delete`](transactions/delete.md) - Delete one occurrence or a verified recurring chain with
   atomic ledger reversal
 - [`list`](transactions/list.md) - Read the complete history, including older records absent from

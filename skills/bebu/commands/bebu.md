@@ -43,14 +43,16 @@ Before a change:
 2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect
    all writes.
 
-Amounts use integer minor units (PHP centavos). bebu creates and deletes one-off expenses, income,
-and card refunds (type REFUND with a positive amountMinor and expense categoryId). Updates also
-support existing upcoming recurring payments. Recurring deletion requires an explicit --scope; read
-transactions delete --help and inspect its dry run. Transfers, splits, debts, files, reconciliation,
-and active linked allocation effects require separate flows. For manual allocations, use allocations
-set --dry-run followed by allocations apply with the saved plan and an explicit request ID. Card
-purchases can overspend a category; the full purchase amount changes spending and the payment
-reserve without allocating funds. Refunds reverse those effects. Historical dates are retained.
+Amounts use integer minor units (PHP centavos). bebu creates one-off or recurring expenses, income,
+and card refunds (type REFUND with a positive amountMinor and expense categoryId). Use frequency,
+repeatCount, and nonWorkingDayPolicy to create a recurring series. Read transactions create --help
+for completion and period rules. Updates also support existing upcoming recurring payments.
+Recurring deletion requires an explicit --scope; read transactions delete --help and inspect its dry
+run. Transfers, splits, debts, files, reconciliation, and active linked allocation effects require
+separate flows. For manual allocations, use allocations set --dry-run followed by allocations apply
+with the saved plan and an explicit request ID. Card purchases can overspend a category; the full
+purchase amount changes spending and the payment reserve without allocating funds. Refunds reverse
+those effects. Historical dates are retained.
 
 Transaction updates accept amounts, accounts, categories, payees, tags, dates, cleared status, and
 metadata. Upcoming entries also accept recurrence rules. Read transactions update --help for scope

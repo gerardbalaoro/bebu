@@ -36,8 +36,9 @@ agreement between the stored month and the due-date month in the CLI runtime tim
 [Transaction Editing](transaction-editing.md) records supported amount, assignment, date, and
 recurrence edits. Upcoming records without saved periods remain periodless.
 [Recurring Deletion](recurring-deletion.md) documents explicit deletion scopes and verified
-clone-chain selection. Creating recurring transactions, completing payments, and generating
-occurrences remain native workflows.
+clone-chain selection. [Recurring Creation](recurring-creation.md) describes initial series
+creation, repeat limits, and schedule normalization. Completing ongoing payments and generating
+later occurrences remain native workflows.
 
 ## Data Model
 

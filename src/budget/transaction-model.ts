@@ -83,6 +83,26 @@ export const TransactionDeleteSchema = z.object({ scope: TransactionDeleteScopeS
 
 export type TransactionDeleteOptions = CommitOptions & z.infer<typeof TransactionDeleteSchema>;
 
+export const TransactionFrequencySchema = z.enum([
+  "ONE_OFF",
+  "DAILY",
+  "WEEKLY",
+  "FORTNIGHTLY",
+  "FOUR_WEEKLY",
+  "MONTHLY",
+  "TWO_MONTHLY",
+  "QUARTERLY",
+  "HALF_YEARLY",
+  "ANNUALLY",
+  "BIENNIALLY",
+]);
+
+export const TransactionWorkdayPolicySchema = z.enum([
+  "KEEP_ORIGINAL_DATE",
+  "SHIFT_TO_NEXT_AVAILABLE_WORKDAY",
+  "SHIFT_TO_PREVIOUS_AVAILABLE_WORKDAY",
+]);
+
 export const TransactionCreateSchema = z.strictObject({
   accountId: ObjectIdSchema,
   amountMinor: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
@@ -91,12 +111,15 @@ export const TransactionCreateSchema = z.strictObject({
   color: z.string().optional(),
   completed: z.boolean().optional(),
   dueAt: z.iso.datetime({ offset: true }).optional(),
+  frequency: TransactionFrequencySchema.optional(),
   id: z
     .string()
     .regex(/^[A-Za-z0-9]{20}$/u)
     .optional(),
+  nonWorkingDayPolicy: TransactionWorkdayPolicySchema.optional(),
   notes: z.string().max(400).optional(),
   payeeId: ObjectIdSchema.optional(),
+  repeatCount: z.number().int().nonnegative().nullable().optional(),
   tagIds: z.array(ObjectIdSchema).optional(),
   timezone: z.string().optional(),
   type: z.enum(["OUTFLOW", "INFLOW", "REFUND"]).default("OUTFLOW"),
@@ -110,30 +133,10 @@ export const TransactionPatchSchema = z
     cleared: z.boolean().optional(),
     color: z.string().optional(),
     dueAt: z.iso.datetime({ offset: true }).optional(),
-    frequency: z
-      .enum([
-        "ONE_OFF",
-        "DAILY",
-        "WEEKLY",
-        "FORTNIGHTLY",
-        "FOUR_WEEKLY",
-        "MONTHLY",
-        "TWO_MONTHLY",
-        "QUARTERLY",
-        "HALF_YEARLY",
-        "ANNUALLY",
-        "BIENNIALLY",
-      ])
-      .optional(),
+    frequency: TransactionFrequencySchema.optional(),
     latitude: z.number().min(-90).max(90).nullable().optional(),
     longitude: z.number().min(-180).max(180).nullable().optional(),
-    nonWorkingDayPolicy: z
-      .enum([
-        "KEEP_ORIGINAL_DATE",
-        "SHIFT_TO_NEXT_AVAILABLE_WORKDAY",
-        "SHIFT_TO_PREVIOUS_AVAILABLE_WORKDAY",
-      ])
-      .optional(),
+    nonWorkingDayPolicy: TransactionWorkdayPolicySchema.optional(),
     notes: z.string().max(400).optional(),
     payeeId: ObjectIdSchema.nullable().optional(),
     recurrenceScope: z.enum(["THIS_PAYMENT", "THIS_AND_LATER"]).optional(),

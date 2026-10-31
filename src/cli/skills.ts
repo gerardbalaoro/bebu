@@ -83,7 +83,7 @@ A completed CLI card expense can overspend its category and increases the linked
 Use transactions create with type REFUND, positive amountMinor, a credit-card accountId, and an expense categoryId for a refund.
 A refund reduces card debt, category spending, and the linked payment reserve. It is stored as a positive OUTFLOW with subtype REFUND.
 Expense categories linked to other accounts still require the native app.
-These effects do not allocate category funds. Historical dueAt timestamps remain intact; the saved period must exist.
+These effects do not allocate category funds. Historical dueAt timestamps remain intact; completed entries need a saved period.
 An uncleared expense or refund changes only the uncleared account balance. Clearing moves it into the cleared balance and account history.
 Category spending and reserve effects apply regardless of clearing. History months use the CLI runtime timezone.
 Category refund spending history decreases; payee/tag spending history uses the absolute amount, matching the native app.
@@ -93,6 +93,15 @@ Category refund spending history decreases; payee/tag spending history uses the 
 Before a transaction change, inspect --dry-run. The summary shows metadata, account balances, category funds, and allocation resources before and after.
 The summary explicitly reports automaticAllocation:false. Add --full to inspect the Firestore writes and preconditions.
 A preview describes the current snapshots. A later command reads fresh snapshots and can produce different results.
+
+Use transactions create with frequency to create an expense, income, or card-refund series.
+Supply optional repeatCount and nonWorkingDayPolicy. repeatCount includes the initial payment; null, zero, or omitted means unlimited.
+A new series starts at sequenceCount 1. Ongoing series start incomplete, even when due today or earlier; omit completed or use false.
+A repeatCount of 1 is valid. An already-due single-payment repeat is completed; a future one remains upcoming.
+Future workday shifts preserve timezone, local time, and monthly anchors. The adjusted date selects the budget period.
+Upcoming recurring entries can be periodless. Completed entries need an existing period; no missing period is created.
+Creation saves one initial occurrence with obligations, indexes, and usage counts. Use the native app to complete it and generate successors.
+Do not mark an ongoing new series completed or manufacture clone links to bypass this boundary.
 
 Use transactions update for amounts, account/category assignments, payees, tags, dates, cleared status, and metadata.
 For upcoming recurring entries, it also accepts frequency, repeatCount, and nonWorkingDayPolicy.

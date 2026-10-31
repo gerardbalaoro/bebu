@@ -1,6 +1,33 @@
 # `bebu transactions create`
 
-Create an expense, income, or card refund with all ledger changes and no automatic allocation
+Create one-off or recurring expenses, income, and card refunds without automatic allocation
+
+## Recurring transactions
+
+Supply frequency, optional repeatCount, and optional nonWorkingDayPolicy in the create JSON.
+frequency defaults to ONE_OFF. Supported repeats are DAILY, WEEKLY, FORTNIGHTLY, FOUR_WEEKLY,
+MONTHLY, TWO_MONTHLY, QUARTERLY, HALF_YEARLY, ANNUALLY, and BIENNIALLY. Workday policies are
+KEEP_ORIGINAL_DATE (default), SHIFT_TO_NEXT_AVAILABLE_WORKDAY, and
+SHIFT_TO_PREVIOUS_AVAILABLE_WORKDAY. For example:
+{"accountId":"cashId","categoryId":"subscriptionId","amountMinor":15000,"dueAt":"2030-01-31T09:00:00+08:00","timezone":"Asia/Manila","frequency":"MONTHLY","repeatCount":12}.
+Preview with transactions create --file transaction.json --dry-run; add --full for exact writes.
+
+A new series starts at sequenceCount 1. repeatCount is the total number of payments; omitted, null,
+or zero means unlimited. A limit of 1 is valid on creation. Ongoing series start incomplete, even
+when due today or earlier. Omit completed or supply false. A single-payment repeat already due is
+completed; future single-payment repeats remain upcoming. The CLI uses the due timestamp to
+determine whether that single payment is due.
+
+Future workday shifts preserve local time, the original date offset, and monthly anchors. DAILY
+workday repeats shift forward. The adjusted due date selects its saved period. Upcoming entries can
+be periodless; completed entries require an existing period. Upcoming expenses affect only
+obligations, indexes, and usage counts. No completed balance, spending, payment-reserve, history, or
+allocation effects occur until completion.
+
+Creation saves one initial canonical entry and its indexes atomically. It does not generate later
+occurrences or complete an ongoing payment. Use the native app for completion and occurrence
+generation. One-off entries cannot have a finite repeat limit or a workday-shift policy. Automatic
+allocation remains disabled.
 
 ## Card purchases and refunds
 
@@ -17,9 +44,10 @@ cover overspending. An uncleared entry changes only the uncleared account balanc
 into the cleared balance and account history. Expense-category spending changes regardless of
 clearing.
 
-Historical dueAt timestamps are preserved. The selected month must have a saved budget period;
-historical allocation support is not required. History uses the due-date month in the CLI runtime
-timezone. Use --dry-run to inspect balances, spending, and reserves; add --full for exact writes.
+Historical dueAt timestamps are preserved. Completed entries and one-off creation require a saved
+budget period; historical allocation support is not required. History uses the due-date month in the
+CLI runtime timezone. Use --dry-run to inspect balances, spending, and reserves; add --full for
+exact writes.
 
 ## Usage
 

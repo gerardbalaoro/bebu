@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { Transaction, TransactionPatch } from "./transaction-model.ts";
+import type { Transaction, TransactionCreate, TransactionPatch } from "./transaction-model.ts";
 import type { TransactionContext } from "./transactions.ts";
 
 const DayMilliseconds = 86_400_000;
@@ -324,4 +324,46 @@ export const editSchedule = (
   if (scheduleChanged) {
     editAnchor(before, after);
   }
+};
+
+// Creation starts at sequence one; unlike an edit, a finite limit of one is valid.
+export const createSchedule = (
+  transaction: Transaction,
+  input: TransactionCreate,
+  context: TransactionContext
+) => {
+  transaction.frequency = input.frequency ?? "ONE_OFF";
+  transaction.nonWorkingDayPolicy = input.nonWorkingDayPolicy ?? "KEEP_ORIGINAL_DATE";
+  transaction.repeatCount = input.repeatCount === 0 ? null : (input.repeatCount ?? null);
+  transaction.sequenceCount = transaction.frequency === "ONE_OFF" ? null : 1;
+  transaction.anchorDay = null;
+  transaction.occurrenceChange = null;
+
+  if (transaction.frequency !== "ONE_OFF") {
+    const exhausted = transaction.repeatCount === 1;
+    const completed = exhausted && new Date(transaction.dueAt).getTime() <= Date.now();
+
+    if (input.completed !== undefined && input.completed !== completed) {
+      throw new Error(
+        "A new recurring transaction is completed only when its single-payment repeat limit is exhausted; ongoing series must have completed=false"
+      );
+    }
+
+    transaction.completed = completed;
+  }
+
+  if (transaction.frequency === "ONE_OFF") {
+    editRepeatRules(transaction, transaction, {
+      nonWorkingDayPolicy: input.nonWorkingDayPolicy,
+      repeatCount: input.repeatCount,
+    });
+  }
+
+  if (!transaction.completed) {
+    normalizeSchedule(transaction, transaction, {});
+  }
+
+  assignPeriod(transaction, context);
+  editAnchor(transaction, transaction);
+  transaction.version = transaction.completed ? 1 : null;
 };

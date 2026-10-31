@@ -42,6 +42,7 @@ import type {
   TransactionDeleteOptions,
   TransactionPatch,
 } from "./transaction-model.ts";
+import { createSchedule } from "./transaction-schedule.ts";
 import { transactionDetails, transactionSummary } from "./transaction-summary.ts";
 import { makeTarget } from "./transaction-target.ts";
 
@@ -298,7 +299,10 @@ export class TransactionService {
     const yearMonth = `${parts.year}-${parts.month}`;
     const periodId = context.budget.data.availablePeriods?.[yearMonth]?.id;
 
-    if (periodId === undefined || periodId === "") {
+    if (
+      (periodId === undefined || periodId === "") &&
+      (input.frequency ?? "ONE_OFF") === "ONE_OFF"
+    ) {
       throw new Error(
         `Budget period ${yearMonth} does not exist. Create or select that period in the app`
       );
@@ -330,7 +334,9 @@ export class TransactionService {
       throw new Error("Use OUTFLOW or INFLOW to create a transaction");
     }
 
-    const completed = input.completed ?? dueAt.getTime() <= Date.now();
+    const completed =
+      input.completed ??
+      ((input.frequency ?? "ONE_OFF") === "ONE_OFF" && dueAt.getTime() <= Date.now());
 
     if (completed && dueAt.getTime() > Date.now() + 60_000) {
       throw new Error("A future transaction must have completed=false");
@@ -441,6 +447,8 @@ export class TransactionService {
       yearMonth,
     };
 
+    createSchedule(transaction, input, context);
+
     const plan = new MutationPlan(this.client);
 
     const wire = {
@@ -469,10 +477,6 @@ export class TransactionService {
     context: TransactionContext
   ) {
     supported(transaction, direction < 0);
-
-    if (direction > 0 && transaction.frequency !== "ONE_OFF") {
-      throw new Error("Creating a recurring transaction requires the native app");
-    }
 
     if (
       transaction.completed &&
