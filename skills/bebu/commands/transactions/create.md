@@ -49,6 +49,12 @@ budget period; historical allocation support is not required. History uses the d
 CLI runtime timezone. Use --dry-run to inspect balances, spending, and reserves; add --full for
 exact writes.
 
+## Refund editability
+
+New refunds are saved with editable:false, matching the native refund flow. Creation previews show
+editable in the transaction summary. The CLI rejects later updates or deletion of these records.
+Existing stored flags remain unchanged.
+
 ## Usage
 
 ```

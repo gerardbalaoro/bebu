@@ -33,7 +33,7 @@ import {
   TransactionPatchSchema,
   TransactionSchema,
   UserSchema,
-  decodeTransaction,
+  readTransactionHistory,
 } from "./transaction-model.ts";
 import type {
   Target,
@@ -263,10 +263,7 @@ export class TransactionService {
   async transaction(id: string) {
     requireId(id);
 
-    return await this.client.document(
-      `${this.client.budgetPath}/transactions/${id}`,
-      TransactionSchema
-    );
+    return await this.client.document(`${this.client.budgetPath}/transactions/${id}`);
   }
   async create(value: TransactionCreate, options: CommitOptions = {}) {
     const input = TransactionCreateSchema.parse(value);
@@ -411,7 +408,7 @@ export class TransactionService {
         uid: this.client.session.uid,
       },
       dueAt: dueAt.toISOString(),
-      editable: true,
+      editable: !refund,
       eventId: null,
       externalId: null,
       extraTarget: null,
@@ -566,7 +563,11 @@ export class TransactionService {
 
     const context = await this.context();
     const doc = await this.transaction(id);
-    const transaction = doc.data;
+    const transaction = TransactionSchema.parse(doc.data);
+
+    if (transaction.id !== id || transaction.budgetId !== this.client.budgetId) {
+      throw new Error("The transaction identity does not match its document path");
+    }
 
     if (transaction.frequency !== "ONE_OFF" || Boolean(transaction.clonedToTransactionId)) {
       throw new Error(
@@ -576,6 +577,11 @@ export class TransactionService {
 
     requireIndependentTransaction(transaction, context.budget.data);
     supported(transaction);
+
+    if (!transaction.editable) {
+      throw new Error("bebu deletes only editable, unreconciled transactions without splits");
+    }
+
     const plan = new MutationPlan(this.client);
     plan.extra.push({ currentDocument: { updateTime: doc.updateTime }, delete: doc.name });
     await this.apply(plan, transaction, -1, context);
@@ -773,6 +779,12 @@ export class TransactionService {
     if (accountId !== undefined && accountId !== "") {
       requireId(accountId);
 
+      if (pageToken !== undefined && pageToken !== "") {
+        throw new Error(
+          "Account history does not support page-token. Omit --account for paginated history"
+        );
+      }
+
       const result = await this.client.request(
         `${this.client.budgetPath}:runQuery`,
         QueryRowsSchema,
@@ -799,14 +811,18 @@ export class TransactionService {
         }
       );
 
-      const rows = result
-        .flatMap((row) => (row.document ? [decodeTransaction(row.document.fields)] : []))
-        .toSorted((a, b) => b.dueAt.localeCompare(a.dueAt));
+      const documents = result.flatMap((row) => (row.document ? [row.document] : []));
+      const history = readTransactionHistory(documents);
+
+      const rows = history.transactions.toSorted((a, b) =>
+        (b.dueAt ?? "").localeCompare(a.dueAt ?? "")
+      );
 
       return {
+        ...history,
         limit,
-        matched: rows.length,
-        scanLimitReached: rows.length === 10_000,
+        matched: documents.length,
+        scanLimitReached: documents.length === 10_000,
         source: "canonical-query",
         transactions: rows.slice(0, limit),
       };
@@ -827,9 +843,9 @@ export class TransactionService {
     );
 
     return {
+      ...readTransactionHistory(result.documents),
       nextPageToken: result.nextPageToken === "" ? null : (result.nextPageToken ?? null),
       source: "canonical-collection",
-      transactions: result.documents.map((d) => decodeTransaction(d.fields)),
     };
   }
 }

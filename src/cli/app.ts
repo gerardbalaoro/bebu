@@ -34,6 +34,7 @@ import {
 import { TransactionService } from "../budget/transactions.ts";
 import { BeyondClient } from "../firestore/client.ts";
 import type { CommitOptions, CommitResult, Data } from "../firestore/encoding.ts";
+import { FirestoreCommitError } from "../firestore/error.ts";
 import { AllocationExecutionError, manualAllocationCommands } from "./allocation-commands.ts";
 import { compactFlag, errorMessage, payload, print } from "./io.ts";
 import { createSkillsCommand } from "./skills.ts";
@@ -108,7 +109,7 @@ const writeResult = (result: CommitResult, full?: boolean) => {
 
 const errorOutput = defineExtension(defineExtensionId("bebu.error-output")).onError(
   (error, { stderr, argv, commandPath }) => {
-    if (error instanceof AllocationExecutionError) {
+    if (error instanceof AllocationExecutionError || error instanceof FirestoreCommitError) {
       stderr(JSON.stringify({ ...error.result, error: error.message }));
 
       return true;
@@ -213,6 +214,12 @@ const transactionsCommand = defineCommand(
           {
             description:
               "Read the complete history, including older records absent from the app cache",
+            sections: [
+              {
+                body: "Legacy records retain absent fields without inferred defaults. diagnostics identifies records and fields that fail strict write validation. Invalid records appear in invalidRecords with their raw decoded data. For decoding failures, invalidRecords.fields retains the original Firestore fields and diagnostics reports decode_error. Inspect both arrays when exporting history. Missing or invalid allocation and link fields still block writes.\n\nWithout --account, follow nextPageToken until null, even when transactions is empty. Malformed records do not stop pagination. With --account, matched includes malformed records. Account queries scan at most 10,000 matches, return at most --limit readable transactions, and do not support pagination. scanLimitReached reports the scan boundary.",
+                title: "Legacy records and pagination",
+              },
+            ],
           },
           (leaf) =>
             leaf
@@ -267,17 +274,28 @@ const transactionsCommand = defineCommand(
         )
       )
       .add(
-        defineCommand("show", { description: "Read a complete transaction record" }, (leaf) =>
-          leaf
-            .flags(...readFlags)
-            .args(idArg)
-            .action(async ({ args, flags, stdout }) => {
-              const transactionResult = await new TransactionService(
-                await clientFor(flags.budget)
-              ).transaction(args.id);
+        defineCommand(
+          "show",
+          {
+            description: "Read a complete transaction record",
+            sections: [
+              {
+                body: "Returns the stored decoded record, including absent legacy fields and explicit null creator values. Reads do not add write defaults. Financial writes still require strict validation. Use transactions list diagnostics to inspect strict-validation failures.",
+                title: "Legacy records",
+              },
+            ],
+          },
+          (leaf) =>
+            leaf
+              .flags(...readFlags)
+              .args(idArg)
+              .action(async ({ args, flags, stdout }) => {
+                const transactionResult = await new TransactionService(
+                  await clientFor(flags.budget)
+                ).transaction(args.id);
 
-              print(stdout, transactionResult.data, flags.compact);
-            })
+                print(stdout, transactionResult.data, flags.compact);
+              })
         )
       )
       .add(
@@ -294,6 +312,10 @@ const transactionsCommand = defineCommand(
               {
                 body: 'Use type OUTFLOW for a purchase or REFUND for a credit-card refund. amountMinor is always positive. A refund requires accountId for the card and categoryId for an ordinary expense category. For example: {"type":"REFUND","accountId":"cardId","categoryId":"groceriesId","amountMinor":12500,"dueAt":"2026-10-01T12:00:00+08:00"}. The stored refund is a positive OUTFLOW with subtype REFUND. Expense categories linked to other accounts require the native app.\n\nCard purchases can overspend a category. Both spending and the linked payment category reserve change by the full purchase amount; refunds reverse those movements. This does not allocate cash to cover overspending. An uncleared entry changes only the uncleared account balance; clearing moves it into the cleared balance and account history. Expense-category spending changes regardless of clearing.\n\nHistorical dueAt timestamps are preserved. Completed entries and one-off creation require a saved budget period; historical allocation support is not required. History uses the due-date month in the CLI runtime timezone. Use --dry-run to inspect balances, spending, and reserves; add --full for exact writes.',
                 title: "Card purchases and refunds",
+              },
+              {
+                body: "New refunds are saved with editable:false, matching the native refund flow. Creation previews show editable in the transaction summary. The CLI rejects later updates or deletion of these records. Existing stored flags remain unchanged.",
+                title: "Refund editability",
               },
             ],
           },
@@ -357,6 +379,10 @@ const transactionsCommand = defineCommand(
               {
                 body: "Recurring deletion requires --scope THIS_PAYMENT or --scope THIS_AND_LATER. THIS_PAYMENT deletes the selected occurrence and preserves already-generated successors. THIS_AND_LATER deletes the selected occurrence and every validated forward clone-linked occurrence, including completed entries and upcoming obligations. Earlier occurrences and their nonempty clone links remain unchanged. A one-off transaction defaults to a single deletion.\n\nExample: bebu transactions delete <id> --scope THIS_AND_LATER --dry-run. Inspect deletedTransactions, preservedTransactions, account balances, category funds, payment reserves, and allocation resources. Add --full for exact atomic writes and version preconditions.\n\nMembership follows canonical clonedToTransactionId links. eventId never selects records. Budget identity, consecutive sequence numbers, increasing dates, frequency, timezone, account/category targets, payee, notes, type, and subtype must agree at each boundary. A broken link, cycle, branch, incompatible boundary, missing dependency, or active allocation effect rejects the entire plan.",
                 title: "Deletion scopes",
+              },
+              {
+                body: "Every deletion scope requires an editable canonical record whose transaction and budget IDs match the selected document.",
+                title: "Eligibility",
               },
               {
                 body: "A live recurring tail without a generated successor cannot use THIS_PAYMENT unless its finite repeat limit is exhausted. The CLI cannot generate a replacement; use THIS_AND_LATER only when you intend to stop the series. Preserved predecessor clone links may point to a deleted record, matching native single-record deletion and preserving earlier completion classification. Do not clear these links.\n\nCompleted deletions reverse the saved account, spending, reserve, history, index, and counter effects. Upcoming deletions remove obligations and usage counts; periodless entries remain periodless. Supported reminder documents and index entries are removed in the same commit. Native allocation predicates, allocation history, autoAllocated extras, reconciliation, splits, files, foreign-currency ledgers, and unsupported linked-account flows remain guarded.\n\nThe CLI inspects at most 100 linked occurrences and rejects plans beyond its atomic write/size limits. Reads and predecessor queries use one Firestore snapshot; concurrent changes fail rather than trigger automatic retries. No event-based sweep, recurrence conversion, zero-amount rewrite, or synthetic successor occurs. Backend regeneration has not been established by the saved client artifact.",
@@ -694,6 +720,10 @@ export const createApp = (): AnyCrust => {
       {
         body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu creates one-off or recurring expenses, income, and card refunds (type REFUND with a positive amountMinor and expense categoryId). Use frequency, repeatCount, and nonWorkingDayPolicy to create a recurring series. Read transactions create --help for completion and period rules. Updates also support existing upcoming recurring payments. Recurring deletion requires an explicit --scope; read transactions delete --help and inspect its dry run. Transfers, splits, debts, files, reconciliation, and active linked allocation effects require separate flows. For manual allocations, use allocations set --dry-run followed by allocations apply with the saved plan and an explicit request ID. Card purchases can overspend a category; the full purchase amount changes spending and the payment reserve without allocating funds. Refunds reverse those effects. Historical dates are retained.\n\nTransaction updates accept amounts, accounts, categories, payees, tags, dates, cleared status, and metadata. Upcoming entries also accept recurrence rules. Read transactions update --help for scope and restrictions. The --request-id flag identifies the atomic commit and its save marker.\n\nFor an identical retry, reuse --request-id and the original payload. For a different operation, use a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves marker existence only. Marker expiry and validation before the commit also limit retries.",
         title: "Write rules",
+      },
+      {
+        body: "Commit errors report requestId, outcome, conflict, marker, preconditions, and recovery. For outcome rejected with recovery refresh-preview, read the current state and run a fresh dry run. Review the new effects before retrying with the original payload and request ID. For create retries, preserve the resolved transaction ID, date, timezone, completion, and clearing fields.\n\nFor outcome unknown or recovery inspect-before-retry, inspect the transaction, affected documents, and save marker before any resend. An absent marker after a lost response does not establish rejection. The CLI never automatically retries a failed commit. Transaction commands have no durable recovery command.",
+        title: "Commit recovery",
       },
     ],
     version: metadata.version,

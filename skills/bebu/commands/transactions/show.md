@@ -2,6 +2,12 @@
 
 Read a complete transaction record
 
+## Legacy records
+
+Returns the stored decoded record, including absent legacy fields and explicit null creator values.
+Reads do not add write defaults. Financial writes still require strict validation. Use transactions
+list diagnostics to inspect strict-validation failures.
+
 ## Usage
 
 ```

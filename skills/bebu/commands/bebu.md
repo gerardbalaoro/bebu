@@ -62,6 +62,18 @@ For an identical retry, reuse --request-id and the original payload. For a diffe
 a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves
 marker existence only. Marker expiry and validation before the commit also limit retries.
 
+## Commit recovery
+
+Commit errors report requestId, outcome, conflict, marker, preconditions, and recovery. For outcome
+rejected with recovery refresh-preview, read the current state and run a fresh dry run. Review the
+new effects before retrying with the original payload and request ID. For create retries, preserve
+the resolved transaction ID, date, timezone, completion, and clearing fields.
+
+For outcome unknown or recovery inspect-before-retry, inspect the transaction, affected documents,
+and save marker before any resend. An absent marker after a lost response does not establish
+rejection. The CLI never automatically retries a failed commit. Transaction commands have no durable
+recovery command.
+
 ## Subcommands
 
 - [`accounts`](accounts.md) - Read accounts and change their configuration

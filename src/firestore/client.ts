@@ -4,7 +4,7 @@ import type { Session } from "../auth/session.ts";
 import { BudgetSchema } from "../budget/model.ts";
 import { DataSchema, DocumentRoot, newId, WireDocumentSchema, decode } from "./encoding.ts";
 import type { CommitOptions, CommitResult, FirestoreDocument, Write } from "./encoding.ts";
-import { FirestoreError } from "./error.ts";
+import { FirestoreCommitError, FirestoreError } from "./error.ts";
 import type { FirestoreTransaction } from "./transaction.ts";
 
 export { FirestoreError } from "./error.ts";
@@ -199,21 +199,31 @@ export class BeyondClient {
       // Marker existence does not bind this request ID to an operation or payload.
       const landed = await this.readMarker(marker);
 
-      if (landed !== undefined && landed !== "") {
-        return { alreadyCommitted: true, commitTime: landed, committed: true, requestId };
+      if (landed.status === "present") {
+        return {
+          alreadyCommitted: true,
+          commitTime: landed.commitTime,
+          committed: true,
+          requestId,
+        };
       }
 
-      throw error;
+      throw new FirestoreCommitError(error, requestId, writes, landed.status);
     }
   }
 
-  private async readMarker(path: string): Promise<string | undefined> {
+  private async readMarker(path: string) {
     try {
-      const marker = await this.document(path, z.object({ createdAt: z.string() }));
+      const marker = await this.document(path, z.object({ createdAt: z.string().min(1) }));
 
-      return marker.data.createdAt;
-    } catch {
-      return undefined;
+      return { commitTime: marker.data.createdAt, status: "present" as const };
+    } catch (error) {
+      return {
+        status:
+          error instanceof FirestoreError && error.status === "NOT_FOUND"
+            ? ("absent" as const)
+            : ("unavailable" as const),
+      };
     }
   }
 }

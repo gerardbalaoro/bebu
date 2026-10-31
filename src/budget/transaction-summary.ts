@@ -12,6 +12,7 @@ export const transactionDetails = (transaction: Transaction | null) =>
     color: transaction.color,
     completed: transaction.completed,
     dueAt: transaction.dueAt,
+    editable: transaction.editable,
     eventId: transaction.eventId,
     frequency: transaction.frequency,
     id: transaction.id,

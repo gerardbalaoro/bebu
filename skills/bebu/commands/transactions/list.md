@@ -2,6 +2,19 @@
 
 Read the complete history, including older records absent from the app cache
 
+## Legacy records and pagination
+
+Legacy records retain absent fields without inferred defaults. diagnostics identifies records and
+fields that fail strict write validation. Invalid records appear in invalidRecords with their raw
+decoded data. For decoding failures, invalidRecords.fields retains the original Firestore fields and
+diagnostics reports decode_error. Inspect both arrays when exporting history. Missing or invalid
+allocation and link fields still block writes.
+
+Without --account, follow nextPageToken until null, even when transactions is empty. Malformed
+records do not stop pagination. With --account, matched includes malformed records. Account queries
+scan at most 10,000 matches, return at most --limit readable transactions, and do not support
+pagination. scanLimitReached reports the scan boundary.
+
 ## Usage
 
 ```

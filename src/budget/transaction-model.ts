@@ -1,3 +1,4 @@
+/* oxlint-disable func-style -- Named history functions follow the repository TypeScript conventions. */
 import { z } from "zod";
 
 import { DataSchema, decode } from "../firestore/encoding.ts";
@@ -77,6 +78,88 @@ export const TransactionSchema = z.looseObject({
 });
 
 export type Transaction = z.infer<typeof TransactionSchema>;
+
+// History can omit legacy values. Only TransactionSchema admits records to write planning.
+const HistoryTargetSchema = TargetSchema.partial().loose();
+
+const HistoryTransactionSchema = TransactionSchema.partial().extend({
+  createdBy: TransactionSchema.shape.createdBy.partial().loose().nullish(),
+  extraTarget: HistoryTargetSchema.nullable().optional(),
+  occurrenceChange: z
+    .looseObject({
+      amount: OccurrenceChangeSchema.shape.amount.unwrap().optional(),
+      dueAt: OccurrenceChangeSchema.shape.dueAt.unwrap().optional(),
+      seriesAmount: OccurrenceChangeSchema.shape.seriesAmount.unwrap().optional(),
+      seriesAnchorAt: OccurrenceChangeSchema.shape.seriesAnchorAt.unwrap().optional(),
+    })
+    .nullish(),
+  payee: HistoryTargetSchema.nullable().optional(),
+  targetFrom: HistoryTargetSchema.nullable().optional(),
+  targetTo: HistoryTargetSchema.nullable().optional(),
+});
+
+interface HistoryIssue {
+  code: string;
+  path: PropertyKey[];
+  message: string;
+}
+
+export function readTransactionHistory(documents: z.infer<typeof QueryDocumentSchema>[]) {
+  const transactions: z.infer<typeof HistoryTransactionSchema>[] = [];
+  const invalidRecords: { document?: string; data?: Data; fields?: Data }[] = [];
+
+  const diagnostics: {
+    document?: string;
+    transactionId?: string;
+    issues: HistoryIssue[];
+  }[] = [];
+
+  for (const document of documents) {
+    const data: Data = {};
+    const issues: HistoryIssue[] = [];
+
+    for (const [key, value] of Object.entries(document.fields)) {
+      try {
+        data[key] = decode(value);
+      } catch (error) {
+        issues.push({
+          code: "decode_error",
+          message: error instanceof Error ? error.message : "Cannot decode Firestore field",
+          path: [key],
+        });
+      }
+    }
+
+    if (issues.length > 0) {
+      invalidRecords.push({ document: document.name, fields: document.fields });
+      diagnostics.push({
+        document: document.name,
+        issues,
+        transactionId: z.string().safeParse(data.id).data,
+      });
+      continue;
+    }
+
+    const history = HistoryTransactionSchema.safeParse(data);
+    const strict = TransactionSchema.safeParse(data);
+
+    if (history.success) {
+      transactions.push(history.data);
+    } else {
+      invalidRecords.push({ data, document: document.name });
+    }
+
+    if (!strict.success) {
+      diagnostics.push({
+        document: document.name,
+        issues: strict.error.issues.map(({ code, path, message }) => ({ code, message, path })),
+        transactionId: z.string().safeParse(data.id).data,
+      });
+    }
+  }
+
+  return { diagnostics, invalidRecords, transactions };
+}
 
 export const TransactionDeleteScopeSchema = z.enum(["THIS_PAYMENT", "THIS_AND_LATER"]);
 export const TransactionDeleteSchema = z.object({ scope: TransactionDeleteScopeSchema.optional() });
@@ -161,18 +244,17 @@ export const UserSchema = z.looseObject({
   photoUrl: z.string().optional(),
 });
 
-const QueryDocumentSchema = z.object({ fields: DataSchema.default({}) });
+const QueryDocumentSchema = z.object({
+  fields: DataSchema.default({}),
+  name: z.string().optional(),
+});
+
 export const QueryRowsSchema = z.array(z.object({ document: QueryDocumentSchema.optional() }));
 
 export const CollectionSchema = z.object({
   documents: z.array(QueryDocumentSchema).default([]),
   nextPageToken: z.string().optional(),
 });
-
-export const decodeTransaction = (fields: Data): Transaction =>
-  TransactionSchema.parse(
-    Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, decode(value)]))
-  );
 
 export type TransactionCreate = z.input<typeof TransactionCreateSchema>;
 

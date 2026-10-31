@@ -11,7 +11,7 @@ import type { Session } from "../auth/session.ts";
 import { createApp } from "../cli/app.ts";
 import { BeyondClient } from "../firestore/client.ts";
 import type { Fetcher } from "../firestore/client.ts";
-import { encodeFields } from "../firestore/encoding.ts";
+import { decode, encodeFields } from "../firestore/encoding.ts";
 import type { CommitResult, Data, Write } from "../firestore/encoding.ts";
 import { AccountService } from "./accounts.ts";
 import { budgetDiagnostics } from "./diagnostics.ts";
@@ -235,6 +235,419 @@ const writesFrom = (result: CommitResult): Write[] => {
 
   return result.body.writes;
 };
+
+test("legacy history pages retain missing values and continue past malformed records", async () => {
+  const omitted = new Set([
+    "autoAllocateIfCapable",
+    "extraTarget",
+    "integrityCount",
+    "nonWorkingDayPolicy",
+    "offsetAdjustment",
+    "subType",
+  ]);
+
+  const legacy = Object.fromEntries(
+    Object.entries({
+      ...canonicalTransaction,
+      id: "legacy",
+      occurrenceChange: {},
+      targetFrom: { id: "card", linkedObjectId: "cardCategory", type: "CREDIT_CARD" },
+      targetTo: { id: "spend", linkedObjectId: null, type: "CATEGORY" },
+    }).filter(([key]) => !omitted.has(key))
+  );
+
+  const pages = [
+    {
+      documents: [legacy, { ...canonicalTransaction, amount: "unknown", id: "malformed" }],
+      nextPageToken: "second",
+    },
+    {
+      documents: [{ ...canonicalTransaction, amount: "unknown", id: "malformedAgain" }],
+      nextPageToken: "third",
+    },
+    { documents: [{ ...canonicalTransaction, id: "last" }] },
+  ];
+
+  const original = structuredClone(pages);
+  const urls: string[] = [];
+
+  const client = new BeyondClient(session, {
+    fetcher: async (input, init) => {
+      expect(init?.method).toBe("GET");
+      urls.push(new Request(input).url);
+      const page = pages[urls.length - 1];
+
+      if (!page) {
+        throw new Error("Unexpected page request");
+      }
+
+      return await Promise.resolve(
+        Response.json({
+          ...page,
+          documents: page.documents.map((record) => ({
+            fields: encodeFields(record),
+            name: `${budgetPath}/transactions/${z.string().parse(record.id)}`,
+          })),
+        })
+      );
+    },
+  });
+
+  const service = new TransactionService(client);
+  const first = await service.list({ limit: 2 });
+  expect(first.transactions).toEqual([legacy]);
+  expect(first).toMatchObject({
+    diagnostics: [
+      { transactionId: "legacy" },
+      { issues: [expect.objectContaining({ path: ["amount"] })], transactionId: "malformed" },
+    ],
+    invalidRecords: [
+      {
+        data: { amount: "unknown", id: "malformed" },
+        document: `${budgetPath}/transactions/malformed`,
+      },
+    ],
+    nextPageToken: "second",
+  });
+  expect(first.diagnostics[0]?.issues.map((issue) => issue.path)).toEqual([
+    ["autoAllocateIfCapable"],
+    ["extraTarget"],
+    ["integrityCount"],
+    ["nonWorkingDayPolicy"],
+    ["offsetAdjustment"],
+    ["subType"],
+    ["targetFrom", "linkedObjectType"],
+    ["targetTo", "linkedObjectType"],
+  ]);
+  assert.ok("nextPageToken" in first);
+  const middle = await service.list({ limit: 2, pageToken: first.nextPageToken ?? undefined });
+  expect(middle.transactions).toEqual([]);
+  expect(middle.invalidRecords).toMatchObject([{ data: { id: "malformedAgain" } }]);
+  assert.ok("nextPageToken" in middle);
+  expect(middle.nextPageToken).toBe("third");
+  const last = await service.list({ limit: 2, pageToken: middle.nextPageToken ?? undefined });
+  expect(last.transactions.map((record) => record.id)).toEqual(["last"]);
+  assert.ok("nextPageToken" in last);
+  expect(last.nextPageToken).toBeNull();
+  expect(urls).toHaveLength(3);
+  expect(urls[1]).toContain("pageToken=second");
+  expect(urls[2]).toContain("pageToken=third");
+  expect(pages).toEqual(original);
+});
+
+test("account history retains legacy records and identifies malformed query results", async () => {
+  const { autoAllocateIfCapable: _capable, ...legacy } = canonicalTransaction;
+
+  const client = new BeyondClient(session, {
+    fetcher: async (_input, init) => {
+      expect(init?.method).toBe("POST");
+
+      return await Promise.resolve(
+        Response.json([
+          { readTime: timestamp },
+          ...[legacy, { ...canonicalTransaction, amount: "unknown", id: "broken" }].map(
+            (record) => ({
+              document: {
+                fields: encodeFields(record),
+                name: `${budgetPath}/transactions/${record.id}`,
+              },
+            })
+          ),
+        ])
+      );
+    },
+  });
+
+  const result = await new TransactionService(client).list({ accountId: "card", limit: 1000 });
+  expect(result.transactions).toEqual([legacy]);
+  expect(result).toMatchObject({
+    diagnostics: [{ transactionId }, { transactionId: "broken" }],
+    invalidRecords: [{ data: { id: "broken" } }],
+    matched: 2,
+    scanLimitReached: false,
+  });
+});
+
+test("an account filter cannot silently ignore a collection continuation token", async () => {
+  const { service, calls } = fixture();
+  await assert.rejects(
+    service.list({ accountId: "card", pageToken: "second" }),
+    /Account history does not support page-token/u
+  );
+  expect(calls).toEqual([]);
+});
+
+test("an unsupported Firestore value retains its wire record without concealing its page", async () => {
+  const fields = {
+    ...encodeFields({ ...canonicalTransaction, id: "unsupported" }),
+    extras: {
+      mapValue: { fields: { location: { geoPointValue: { latitude: 1, longitude: 2 } } } },
+    },
+  };
+
+  const client = new BeyondClient(session, {
+    fetcher: async () =>
+      await Promise.resolve(
+        Response.json({
+          documents: [
+            { fields, name: `${budgetPath}/transactions/unsupported` },
+            {
+              fields: encodeFields(canonicalTransaction),
+              name: `${budgetPath}/transactions/${transactionId}`,
+            },
+          ],
+          nextPageToken: "next",
+        })
+      ),
+  });
+
+  const result = await new TransactionService(client).list();
+  expect(result.transactions.map((record) => record.id)).toEqual([transactionId]);
+  expect(result).toMatchObject({
+    diagnostics: [
+      { issues: [{ code: "decode_error", path: ["extras"] }], transactionId: "unsupported" },
+    ],
+    invalidRecords: [{ document: `${budgetPath}/transactions/unsupported`, fields }],
+    nextPageToken: "next",
+  });
+});
+
+test.each(["update", "delete"] as const)(
+  "legacy allocation uncertainty still blocks %s before commit",
+  async (operation) => {
+    const { service, documents, calls } = fixture();
+    const { autoAllocateIfCapable: _capable, ...legacy } = canonicalTransaction;
+    documents.set(`${budgetPath}/transactions/${transactionId}`, legacy);
+    await assert.rejects(
+      operation === "update"
+        ? service.update(transactionId, { categoryId: "spend" })
+        : service.delete(transactionId),
+      /autoAllocateIfCapable/u
+    );
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+  }
+);
+
+test("a category-only change cannot bypass a refund's stored editability restriction", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    amount: 250,
+    editable: false,
+    reconciled: false,
+    splitId: null,
+    subType: "REFUND",
+  });
+  await assert.rejects(service.update(transactionId, { categoryId: "spend" }), /only editable/u);
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("new one-off refunds preserve native noneditability throughout their lifecycle", async () => {
+  const { service, documents, calls } = fixture();
+
+  const result = await service.create(
+    {
+      accountId: "card",
+      amountMinor: 100,
+      categoryId: "spend",
+      dueAt: timestamp,
+      id: transactionId,
+      type: "REFUND",
+    },
+    { dryRun: true }
+  );
+
+  const write = writesFrom(result).find(
+    (entry) => entry.update?.name === `${budgetPath}/transactions/${transactionId}`
+  );
+
+  const fields = write?.update?.fields ?? {};
+  expect(fields.editable).toEqual({ booleanValue: false });
+  expect(result.summary).toMatchObject({ transaction: { after: { editable: false } } });
+  documents.set(
+    `${budgetPath}/transactions/${transactionId}`,
+    Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, decode(value)]))
+  );
+  await assert.rejects(
+    service.update(transactionId, { categoryId: "spend" }, { dryRun: true }),
+    /only editable/u
+  );
+  await assert.rejects(service.delete(transactionId, { dryRun: true }), /only editable/u);
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("ordinary one-off deletion cannot bypass a refund's stored editability restriction", async () => {
+  const { service, documents, calls } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, {
+    ...canonicalTransaction,
+    amount: 250,
+    editable: false,
+    subType: "REFUND",
+  });
+  await assert.rejects(service.delete(transactionId, { dryRun: true }), /only editable/u);
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test.each([{ id: "anotherTransaction" }, { budgetId: "anotherBudget" }])(
+  "one-off deletion rejects a mismatched canonical identity: %j",
+  async (identity) => {
+    const { service, documents, calls } = fixture();
+    documents.set(`${budgetPath}/transactions/${transactionId}`, {
+      ...canonicalTransaction,
+      ...identity,
+    });
+    await assert.rejects(
+      service.delete(transactionId, { dryRun: true }),
+      /identity does not match/u
+    );
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+  }
+);
+
+test("individual legacy transaction reads preserve omissions without changing write eligibility", async () => {
+  const { service, documents, calls } = fixture();
+  const { autoAllocateIfCapable: _capable, ...legacy } = canonicalTransaction;
+  documents.set(`${budgetPath}/transactions/${transactionId}`, { ...legacy, occurrenceChange: {} });
+  const result = await service.transaction(transactionId);
+  expect(result.data).toEqual({ ...legacy, occurrenceChange: {} });
+  await assert.rejects(service.delete(transactionId, { dryRun: true }), /autoAllocateIfCapable/u);
+  await assert.rejects(
+    service.update(transactionId, { categoryId: "spend" }, { dryRun: true }),
+    /autoAllocateIfCapable/u
+  );
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("legacy history preserves an explicitly unknown creator while writes stay strict", async () => {
+  const record = { ...canonicalTransaction, createdBy: null };
+  const { fetcher, documents } = fixture();
+  documents.set(`${budgetPath}/transactions/${transactionId}`, record);
+
+  const client = new BeyondClient(structuredClone(session), {
+    fetcher: async (input, init) => {
+      if (new Request(input).url.includes("/transactions?")) {
+        return await Promise.resolve(
+          Response.json({
+            documents: [
+              {
+                fields: encodeFields(record),
+                name: `${budgetPath}/transactions/${transactionId}`,
+              },
+            ],
+          })
+        );
+      }
+
+      return await fetcher(input, init);
+    },
+  });
+
+  const service = new TransactionService(client);
+  const history = await service.list();
+  expect(history.transactions).toEqual([record]);
+  expect(history.invalidRecords).toEqual([]);
+  expect(history.diagnostics).toMatchObject([{ issues: [{ path: ["createdBy"] }], transactionId }]);
+  await assert.rejects(
+    service.update(transactionId, { notes: "reviewed" }, { dryRun: true }),
+    /createdBy/u
+  );
+  await assert.rejects(service.delete(transactionId, { dryRun: true }), /createdBy/u);
+});
+
+test.each(["conflict", "lost-response"])(
+  "CLI %s failures expose recovery JSON and never replay writes",
+  async (failure) => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-conflict-cli-"));
+    const previous = process.env.BEBU_SESSION_FILE;
+    const { fetcher, documents } = fixture();
+    const original = structuredClone(documents);
+    let commits = 0;
+    const requestId = "abcdefghijklmnopqrst";
+
+    const transport: Fetcher = async (input, init) => {
+      if (init?.method === "POST") {
+        expect(new Request(input).url).toEndWith("documents:commit");
+        commits += 1;
+
+        if (failure === "lost-response") {
+          throw new Error("Connection lost");
+        }
+
+        return await Promise.resolve(
+          Response.json(
+            {
+              error: {
+                message: "the stored version does not match the required base version",
+                status: "FAILED_PRECONDITION",
+              },
+            },
+            { status: 400 }
+          )
+        );
+      }
+
+      return await fetcher(input, init);
+    };
+
+    const fetchMock = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(transport, { preconnect: fetch.preconnect })
+    );
+
+    process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+
+    try {
+      await writeFile(process.env.BEBU_SESSION_FILE, JSON.stringify(session));
+      const file = nodePath.join(directory, "patch.json");
+      await writeFile(file, JSON.stringify({ notes: "reviewed" }));
+
+      const result = await captureExecute(createApp(), [
+        "transactions",
+        "update",
+        transactionId,
+        "--file",
+        file,
+        "--request-id",
+        requestId,
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+
+      const diagnostic = z
+        .object({
+          error: z.string(),
+          preconditions: z.array(z.object({ document: z.string(), updateTime: z.string() })),
+        })
+        .loose()
+        .parse(JSON.parse(result.stderr));
+
+      expect(diagnostic).toMatchObject({
+        conflict: failure === "conflict",
+        marker: "absent",
+        outcome: failure === "conflict" ? "rejected" : "unknown",
+        recovery: failure === "conflict" ? "refresh-preview" : "inspect-before-retry",
+        requestId,
+      });
+      expect(diagnostic.error.length).toBeGreaterThan(0);
+      expect(diagnostic.preconditions).toContainEqual({
+        document: `${budgetPath}/transactions/${transactionId}`,
+        updateTime: timestamp,
+      });
+      expect(commits).toBe(1);
+      expect(documents).toEqual(original);
+    } finally {
+      fetchMock.mockRestore();
+
+      if (previous === undefined) {
+        delete process.env.BEBU_SESSION_FILE;
+      } else {
+        process.env.BEBU_SESSION_FILE = previous;
+      }
+
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);
 
 const writeAt = (writes: Write[], suffix: string): Write => {
   const write = writes.find(

@@ -36,6 +36,18 @@ For account/category links or allocation settings, use budget diagnostics. Repor
 values with their document paths. Unknown values and absent settings have no inferred meaning or
 default.
 
+## Transaction history
+
+Legacy transaction reads preserve absent fields without defaults. Inspect diagnostics and
+invalidRecords as well as transactions. diagnostics identifies strict write-validation failures.
+invalidRecords retains raw decoded records with invalid field types. For decoding failures,
+invalidRecords.fields preserves the original Firestore fields and diagnostics reports decode_error.
+Without an account filter, follow nextPageToken until null, even when transactions is empty.
+Account-filtered queries have no pagination. matched includes malformed records; scanLimitReached
+reports the 10,000-record scan boundary. Missing allocation or link fields remain unknown and block
+writes through strict validation. transactions show also preserves absent legacy fields and explicit
+null creators without adding write defaults.
+
 ## Allocation requests
 
 For a target funding preview, use allocations preview with an explicit month. For SAVINGS targets,
@@ -73,12 +85,14 @@ A completed CLI card expense can overspend its category and increases the linked
 otherAmount by the full amount. Use transactions create with type REFUND, positive amountMinor, a
 credit-card accountId, and an expense categoryId for a refund. A refund reduces card debt, category
 spending, and the linked payment reserve. It is stored as a positive OUTFLOW with subtype REFUND.
-Expense categories linked to other accounts still require the native app. These effects do not
-allocate category funds. Historical dueAt timestamps remain intact; completed entries need a saved
-period. An uncleared expense or refund changes only the uncleared account balance. Clearing moves it
-into the cleared balance and account history. Category spending and reserve effects apply regardless
-of clearing. History months use the CLI runtime timezone. Category refund spending history
-decreases; payee/tag spending history uses the absolute amount, matching the native app.
+New refunds use editable:false, matching the native refund screen. Dry runs show editable; the CLI
+rejects later updates and deletion. Expense categories linked to other accounts still require the
+native app. These effects do not allocate category funds. Historical dueAt timestamps remain intact;
+completed entries need a saved period. An uncleared expense or refund changes only the uncleared
+account balance. Clearing moves it into the cleared balance and account history. Category spending
+and reserve effects apply regardless of clearing. History months use the CLI runtime timezone.
+Category refund spending history decreases; payee/tag spending history uses the absolute amount,
+matching the native app.
 
 ## Preview and retry
 
@@ -113,7 +127,8 @@ can use THIS_PAYMENT. Use --scope THIS_AND_LATER to delete the selected occurren
 forward clone chain. Earlier history remains intact. The CLI follows validated transaction links; a
 shared eventId does not identify a deletion chain. Earlier nonempty clone links remain unchanged,
 even if their child is deleted. Do not clear these links. Inspect the dry run's deletedTransactions,
-preservedTransactions, and ledger effects before committing.
+preservedTransactions, and ledger effects before committing. Every deletion scope requires an
+editable canonical record with matching transaction and budget identities.
 
 Transactions with active native allocation predicates, allocation history, or autoAllocated extras
 reject deletion, financial edits, and schedule edits. Inactive allocation flags alone do not block
@@ -124,6 +139,13 @@ command's other restrictions. Do not remove allocation flags or history to bypas
 For an identical retry, reuse the request ID and original payload. For a different operation, use a
 new request ID. For create retries, preserve the resolved id, dueAt, timezone, completed, and
 cleared fields.
+
+Commit errors report requestId, outcome, conflict, marker, preconditions, and recovery. For outcome
+rejected with recovery refresh-preview, read the current state and run a fresh dry run. Review the
+new effects before an identical retry with the original payload and request ID. For outcome unknown
+or recovery inspect-before-retry, inspect the transaction, affected documents, and save marker
+before any resend. An absent marker after a lost response does not establish rejection. The CLI
+never automatically retries a failed commit.
 
 For transaction commands, save markers do not bind request IDs to payloads. An alreadyCommitted
 result proves marker existence only. A retry can fail before marker lookup, including after

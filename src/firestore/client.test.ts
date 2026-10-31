@@ -142,3 +142,140 @@ test("a write outside the selected budget is rejected before any network request
   );
   expect(requests).toBe(0);
 });
+
+test("a rejected version conflict carries its request ID and refresh instructions without replay", async () => {
+  const methods: string[] = [];
+
+  const client = new BeyondClient(session, {
+    fetcher: async (_input, init) => {
+      methods.push(init?.method ?? "GET");
+
+      return await Promise.resolve(
+        init?.method === "POST"
+          ? Response.json(
+              {
+                error: {
+                  message: "the stored version does not match the required base version",
+                  status: "FAILED_PRECONDITION",
+                },
+              },
+              { status: 400 }
+            )
+          : Response.json({ error: { message: "No marker", status: "NOT_FOUND" } }, { status: 404 })
+      );
+    },
+  });
+
+  await assert.rejects(client.commit(writes, { requestId }), (error) => {
+    expect(error).toMatchObject({
+      result: {
+        conflict: true,
+        httpStatus: 400,
+        marker: "absent",
+        outcome: "rejected",
+        preconditions: [{ document: `${budgetPath}/stashes/accounts`, updateTime: timestamp }],
+        recovery: "refresh-preview",
+        requestId,
+        status: "FAILED_PRECONDITION",
+      },
+    });
+
+    return true;
+  });
+  expect(methods).toEqual(["POST", "GET"]);
+});
+
+test.each([
+  { outcome: "rejected", status: "FAILED_PRECONDITION" },
+  { outcome: "unknown", status: "INTERNAL" },
+])(
+  "a $status failure with an unreadable marker requires inspection before retry",
+  async ({ outcome, status }) => {
+    let commits = 0;
+
+    const client = new BeyondClient(session, {
+      fetcher: async (_input, init) => {
+        if (init?.method === "POST") {
+          commits += 1;
+
+          return await Promise.resolve(
+            Response.json(
+              { error: { message: "Commit failed", status } },
+              { status: status === "INTERNAL" ? 500 : 400 }
+            )
+          );
+        }
+
+        return await Promise.resolve(
+          Response.json(
+            { error: { message: "Denied", status: "PERMISSION_DENIED" } },
+            { status: 403 }
+          )
+        );
+      },
+    });
+
+    await assert.rejects(client.commit(writes, { requestId }), (error) => {
+      expect(error).toMatchObject({
+        result: {
+          marker: "unavailable",
+          outcome,
+          recovery: "inspect-before-retry",
+          requestId,
+          status,
+        },
+      });
+
+      return true;
+    });
+    expect(commits).toBe(1);
+  }
+);
+
+test.each(["missing", "unavailable"])(
+  "a lost commit with a %s marker remains unknown and is never replayed",
+  async (marker) => {
+    let commits = 0;
+
+    const client = new BeyondClient(session, {
+      fetcher: async (_input, init) => {
+        if (init?.method === "POST") {
+          commits += 1;
+          throw new Error("Lost response");
+        }
+
+        return await Promise.resolve(
+          Response.json(
+            {
+              error: {
+                message: "Marker unreadable",
+                status: marker === "missing" ? "NOT_FOUND" : "PERMISSION_DENIED",
+              },
+            },
+            { status: marker === "missing" ? 404 : 403 }
+          )
+        );
+      },
+    });
+
+    await assert.rejects(client.commit(writes), (error) => {
+      expect(error).toMatchObject({
+        result: {
+          conflict: false,
+          marker: marker === "missing" ? "absent" : "unavailable",
+          outcome: "unknown",
+          recovery: "inspect-before-retry",
+        },
+      });
+
+      const failure = z
+        .object({ result: z.object({ requestId: z.string().regex(/^[A-Za-z0-9]{20}$/u) }) })
+        .parse(error);
+
+      expect(failure.result.requestId).toHaveLength(20);
+
+      return true;
+    });
+    expect(commits).toBe(1);
+  }
+);

@@ -19,6 +19,11 @@ identity, consecutive sequence numbers, increasing dates, frequency, timezone, a
 targets, payee, notes, type, and subtype must agree at each boundary. A broken link, cycle, branch,
 incompatible boundary, missing dependency, or active allocation effect rejects the entire plan.
 
+## Eligibility
+
+Every deletion scope requires an editable canonical record whose transaction and budget IDs match
+the selected document.
+
 ## Limits and safety
 
 A live recurring tail without a generated successor cannot use THIS_PAYMENT unless its finite repeat
