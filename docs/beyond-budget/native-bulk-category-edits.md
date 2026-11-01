@@ -1,14 +1,15 @@
-# Native Bulk Category Edit Readiness
+# Native Bulk Category Edits
 
-Retained client code does not establish a bulk route around legacy or reconciliation guards. The
-category branch copies a calculated transaction, then uses the ordinary transaction updater.
-Applicable runtime evidence is still required before extending migration eligibility.
+Native bulk category edits now have bounded lab evidence for one explicit split child and one
+complete reconciled expense. Each action preserved account money, flags, saved links, and existing
+funding/history. CLI split, reconciliation, allocation, and historical guards remain unchanged.
 
 ## Retained Contract
 
 This trace uses the module and WAT hashes in [Source Reconstruction](source-reconstruction.md). The
-investigation checked those hashes and read focused existing excerpts. It performed no native
-action, authenticated read, support request, or new carryover investigation.
+static trace checked those hashes and read focused existing excerpts. Runtime validation below used
+the authorized disposable lab. No Primary write, support request, or carryover reinvestigation
+occurred.
 
 Bulk continuation 52151 reads the transaction model through 52131 with a five-second timeout. The
 model stream predicate references the fromCache field. This does not establish a terminal downstream
@@ -33,11 +34,55 @@ handling through 51845. Copying a boolean value does not preserve the distinctio
 raw field and a model value supplied during decoding.
 
 Consequently, bulk editing cannot yet promise preservation of missing allocation fields, raw link
-representations, reconciliation state, or creator metadata. It also cannot resolve a genuine
+representations, broader reconciliation state, or creator metadata. It also cannot resolve a genuine
 saved/current-link conflict by assumption. The canonical old record and calculated replacement must
 both be verified in a controlled fixture.
 
-## Required Legitimate Lab Fixtures
+## Verified Single-Child Split Category Edit
+
+The native route is Transactions, More options, then Bulk update. Select exactly one known split
+child, enable only Category, choose its reviewed destination, and review the one-transaction
+confirmation. This route uses individual transaction selection without opening a partial group
+editor.
+
+The lab fixture was a complete known two-member expense split with one account and date. The
+selected child had explicit completed, cleared, editable, unreconciled state, version 1, both
+allocation flags true, and an agreeing reciprocal SAVINGS link. Both portions and the total were
+known before submission.
+
+The original acknowledgment contained 22 write results. Complete expected-value and raw-wire
+comparisons covered all 90 documents, six saved months, and all 12 canonical transactions. The
+selected canonical record changed only its category ID. The sibling's raw document and version
+remained identical. Shared split identity, portions, total, source account, dates, flags, links,
+existing funding records, allocations, and root history remained unchanged. Spending, usage counts,
+previews, and later carryover reflected the selected expense's category change.
+
+This establishes the matching monitored native action. It does not reproduce a trimmed global
+preview stash or prove why older group editors hydrate only one member. Repeated categories, mixed
+accounts, unknown portions, incomplete records, and other split families remain separate cases.
+Never submit a partial group editor or insert missing production previews.
+
+## Verified Reconciled Expense Category Edit
+
+A separate known ordinary expense first used the native Reconciled control. Its complete original
+22-write acknowledgment established reconciled:true. The action retained the explicit
+reconciledAt:null value and preserved account money. No balancing entry was created.
+
+A later native bulk category-only action selected that reconciled expense. The record had explicit
+completed, cleared, editable state, version 1, both allocation flags true, and agreeing reciprocal
+SAVINGS links. Its original acknowledgment also contained 22 write results.
+
+Complete comparisons covered all 90 raw documents, six saved months, and all 12 canonical records.
+Only the selected canonical category changed. Reconciliation remained true, its timestamp remained
+null, and all other flags, versions, amounts, dates, identities, and saved links remained unchanged.
+Existing funding records, allocations, root history, account money, and unrelated values were
+preserved. No new financial record appeared.
+
+This supports the matching individually monitored native action. It does not cover a non-null
+reconciliation timestamp, missing financial fields, unknown creators, genuine link conflicts,
+positive refunds, or reconciled splits. Do not clear reconciliation to make a record eligible.
+
+## Fixture Coverage And Remaining Requirements
 
 Each fixture requires complete consistent snapshots of all budget collections and original complete
 acknowledgments. Secondary payee, tag, debt, shopping-list, and unreferenced category stashes are
@@ -47,7 +92,7 @@ part of that coverage. Direct and history saves require separate evidence when b
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | Complete generic-account expense    | Existing native completed, cleared, editable expense with explicit flags/version and agreeing reciprocal savings links         | Preserve account money, amount/date, source links, flags, funding records, history, and unrelated values                |
 | Missing autoAllocateIfIncome alone  | Naturally occurring editable legacy record, or native import/restore that preserves that exact omission                        | Determine whether the field remains absent; reject promotion if native decoding materializes an unknown value           |
-| Reconciled expense                  | Reconcile a separate known expense through the native UI and retain that acknowledgment first                                  | Preserve reconciliation flag/timestamp, identity, account money, and links; observe native permission or no-op behavior |
+| Reconciled expense                  | Null-timestamp subset verified above; other timestamp shapes require a separate legitimate fixture                             | Preserve reconciliation flag/timestamp, identity, account money, and links; observe native permission or no-op behavior |
 | Genuine saved/current-link conflict | Create a separate native linked-account expense, then change the account link through a verified native configuration workflow | Establish whether bulk editing preserves the original saved target; a refreshed link fails the preservation requirement |
 | Editable positive refund            | Existing legitimate positive editable OUTFLOW/REFUND with explicit flags and reciprocal card link, or matching native import   | Verify signed category effects while preserving account money, reserve, subtype, editability, and links                 |
 | Immutable refund                    | Separate native refund created through its ordinary refund flow                                                                | Establish native refusal/no-op without changing editability or replacing the transaction                                |
@@ -66,6 +111,8 @@ The migration's authorized account-balance invariant permits changed category en
 legitimate native reclassification. It does not permit changes to transaction amounts, accounts,
 explicit flags, saved links, or unresolved operation identities.
 
-The static contract supplies candidate paths and fixtures. It enables no bulk CLI writer or new
-production category-edit family. Unknown outcomes retain their original identity and require
-observation; current values cannot replace an original acknowledgment.
+The verified subsets support matching individually monitored native actions under the migration
+authorization. They enable no bulk CLI writer and remove no CLI guard. Missing-field, link-conflict,
+refund, and broader reconciliation shapes still require legitimate matching fixtures. Unknown
+outcomes retain their original identity and require observation. Current values cannot replace an
+original acknowledgment.

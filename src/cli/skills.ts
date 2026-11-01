@@ -169,9 +169,14 @@ A refund reduces card debt, category spending, and the linked payment reserve. I
 New refunds use editable:false, matching the native refund screen. These newly created refunds reject later updates and deletion.
 An existing imported positive OUTFLOW/REFUND with explicit editable:true retains that value.
 Its category edit uses signed refund effects and retains strict link, allocation, reconciliation, split and historical guards.
+This existing CLI behavior does not establish a monitored native workflow for that imported shape.
 For explicitly authorized monitored native allocation-capable or split category edits, read [Native Category And Split Edits](../../docs/beyond-budget/native-category-edits.md).
 That evidence defines bounded native cases; it does not enable CLI execution through existing guards.
-This existing CLI behavior does not establish a monitored native workflow for that imported shape.
+For an explicitly authorized native bulk category action, read [Native Bulk Category Edits](../../docs/beyond-budget/native-bulk-category-edits.md).
+Verified subsets cover one complete known split child and one complete reconciled ordinary expense with an explicit null reconciliation timestamp.
+Both retained original acknowledgments and preserved account money, explicit flags, saved links, and funding/history.
+The split sibling remained raw-identical. Missing fields, unknown creators, genuine link conflicts, positive refunds, other reconciliation shapes, and trimmed-preview hydration remain unverified.
+No CLI split or reconciliation guard is removed. Never submit a partial group editor or infer missing financial values.
 Expense categories linked to other accounts still require the native app.
 These effects do not allocate category funds. Historical dueAt timestamps remain intact; completed entries need a saved period.
 An uncleared expense or refund changes only the uncleared account balance. Clearing moves it into the cleared balance and account history.
