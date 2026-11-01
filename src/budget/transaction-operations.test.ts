@@ -9,6 +9,7 @@ import path from "node:path";
 import { BeyondClient } from "../firestore/client.ts";
 import type { Fetcher } from "../firestore/client.ts";
 import { DocumentRoot, encodeFields } from "../firestore/encoding.ts";
+import { FirestoreTransaction } from "../firestore/transaction.ts";
 import { TransactionOperations } from "./transaction-operations.ts";
 
 const requestId = "RecoveryRequest00001";
@@ -48,7 +49,7 @@ test("request reuse with a changed payload, budget, or action never dispatches a
     if (init?.method === "POST") {
       commits += 1;
 
-      return Response.json({ commitTime: "2026-10-02T00:00:00.000Z" });
+      return Response.json({ commitTime: "2026-10-02T00:00:00.000Z", writeResults: [{}, {}] });
     }
 
     return Response.json({ error: { message: "absent", status: "NOT_FOUND" } }, { status: 404 });
@@ -203,7 +204,7 @@ test("compiled body is durable and marked sending before the first financial dis
     expect(JSON.stringify(operation.submission?.body)).toBe(dispatched);
     inspected = true;
 
-    return Response.json({ commitTime: "2026-10-02T00:00:00.000Z" });
+    return Response.json({ commitTime: "2026-10-02T00:00:00.000Z", writeResults: [{}, {}] });
   };
 
   const operations = new TransactionOperations(client(fetcher), { home });
@@ -273,7 +274,7 @@ test("dry runs reserve no operation and concurrent live claims create at most on
     if (init?.method === "POST") {
       commits += 1;
 
-      return Response.json({ commitTime: "2026-10-02T00:00:00.000Z" });
+      return Response.json({ commitTime: "2026-10-02T00:00:00.000Z", writeResults: [{}, {}] });
     }
 
     return Response.json({ error: { message: "absent", status: "NOT_FOUND" } }, { status: 404 });
@@ -317,7 +318,7 @@ test("corrupt or incomplete permanent records block reusing a request after rest
     if (init?.method === "POST") {
       commits += 1;
 
-      return Response.json({ commitTime: "2026-10-02T00:00:00.000Z" });
+      return Response.json({ commitTime: "2026-10-02T00:00:00.000Z", writeResults: [{}, {}] });
     }
 
     return Response.json({ error: { message: "absent", status: "NOT_FOUND" } }, { status: 404 });
@@ -429,6 +430,173 @@ test("recovery bounds document observations and never infers success from unchan
       updateTime: "2026-10-01T00:00:00.000Z",
     });
     expect(commits).toBe(1);
+  } finally {
+    await rm(home, { force: true, recursive: true });
+  }
+});
+
+test.each([
+  { commitTime: "2026-10-02T00:00:00.000Z" },
+  { commitTime: "2026-10-02T00:00:00.000Z", writeResults: [{}] },
+  { commitTime: "invalid", writeResults: [{}, {}] },
+])(
+  "incomplete or malformed acknowledgments remain unknown without replay: %j",
+  async (acknowledgment) => {
+    const home = await mkdtemp(path.join(tmpdir(), "bebu-transaction-incomplete-"));
+    let commits = 0;
+    let dispatched = false;
+
+    const fetcher: Fetcher = async (url, init) => {
+      if (init?.method === "POST") {
+        commits += 1;
+        dispatched = true;
+
+        return Response.json(acknowledgment);
+      }
+
+      if (!dispatched) {
+        return Response.json({ error: { status: "NOT_FOUND" } }, { status: 404 });
+      }
+
+      return Response.json({
+        fields: {},
+        name: new Request(url).url.replace("https://firestore.googleapis.com/v1/", ""),
+        updateTime: "2026-10-02T00:00:00.000Z",
+      });
+    };
+
+    try {
+      const operations = new TransactionOperations(client(fetcher), { home });
+      await assert.rejects(
+        operations.run(
+          intent,
+          { requestId },
+          async (options) => await operations.commit(writes, options)
+        ),
+        /recovery/u
+      );
+      expect(await operations.recover(requestId)).toMatchObject({
+        financialRetryMade: false,
+        marker: "present",
+        status: "unknown",
+      });
+      await assert.rejects(
+        operations.run(
+          intent,
+          { requestId },
+          async (options) => await operations.commit(writes, options)
+        ),
+        /recovery/u
+      );
+      expect(commits).toBe(1);
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  }
+);
+
+test("atomic reallocation retains its root history body and observes it after a lost acknowledgment", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "bebu-reallocation-root-"));
+  let commits = 0;
+  let dispatched = false;
+  let rootReads = 0;
+  const root = `${DocumentRoot}/budgets/budget`;
+
+  const rootWrite = {
+    currentDocument: { updateTime: "2026-10-01T00:00:00.000Z" },
+    update: {
+      fields: encodeFields({
+        allocationHistory: { [requestId]: { afterAmount: 250, source: "MONEY_REALLOCATION" } },
+        changeSource: "USER",
+      }),
+      name: root,
+    },
+    updateMask: { fieldPaths: [`allocationHistory.${requestId}`, "changeSource"] },
+  };
+
+  const fetcher: Fetcher = async (url, init) => {
+    const address = new Request(url).url;
+
+    if (address.endsWith(":beginTransaction")) {
+      return Response.json({ transaction: "snapshot-identity" });
+    }
+
+    if (init?.method === "POST") {
+      commits += 1;
+      dispatched = true;
+      // oxlint-disable-next-line no-use-before-define -- The sender exists before dispatch.
+      const operation = await operations.operation(requestId);
+      expect(operation.state.status).toBe("sending");
+      expect(JSON.stringify(operation.submission?.body)).toBe(await new Request(url, init).text());
+      expect(operation.submission?.body).toMatchObject({
+        transaction: "snapshot-identity",
+        writes: [writes[0], rootWrite, expect.anything()],
+      });
+      throw new Error("lost acknowledgment");
+    }
+
+    if (address.endsWith("/budgets/budget")) {
+      rootReads += 1;
+    }
+
+    if (!dispatched) {
+      return Response.json({ error: { status: "NOT_FOUND" } }, { status: 404 });
+    }
+
+    return Response.json({
+      fields: {},
+      name: address.replace("https://firestore.googleapis.com/v1/", ""),
+      updateTime: "2026-10-02T00:00:00.000Z",
+    });
+  };
+
+  const selected = client(fetcher);
+  const operations = new TransactionOperations(selected, { home });
+
+  try {
+    const snapshot = await FirestoreTransaction.begin(selected, "write");
+
+    const reallocation = {
+      action: "reallocate" as const,
+      input: { amountMinor: 250, destination: "to", source: "from" },
+    };
+
+    await assert.rejects(
+      operations.run(
+        reallocation,
+        { requestId },
+        async (options) => await operations.commit([...writes, rootWrite], options, snapshot)
+      ),
+      /recovery/u
+    );
+    const observation = await operations.recover(requestId);
+    expect(observation).toMatchObject({
+      financialRetryMade: false,
+      observation: {
+        documents: [
+          expect.anything(),
+          {
+            document: root,
+            exists: true,
+            originalPrecondition: { updateTime: "2026-10-01T00:00:00.000Z" },
+            originalPreconditionMatches: false,
+            updateTime: "2026-10-02T00:00:00.000Z",
+          },
+        ],
+        establishesCommitOutcome: false,
+      },
+      status: "unknown",
+    });
+    await assert.rejects(
+      operations.run(
+        reallocation,
+        { requestId },
+        async (options) => await operations.commit([...writes, rootWrite], options, snapshot)
+      ),
+      /recovery/u
+    );
+    expect(commits).toBe(1);
+    expect(rootReads).toBeGreaterThan(0);
   } finally {
     await rm(home, { force: true, recursive: true });
   }

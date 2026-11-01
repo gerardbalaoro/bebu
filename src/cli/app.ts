@@ -27,6 +27,7 @@ import { budgetDiagnostics } from "../budget/diagnostics.ts";
 import { categoryFunding } from "../budget/funding.ts";
 import { LabelsSchema } from "../budget/labels.ts";
 import { CategoriesSchema } from "../budget/model.ts";
+import { ReallocationService } from "../budget/reallocation.ts";
 import {
   removeCategoryTarget,
   saveCategoryTarget,
@@ -634,6 +635,67 @@ const allocationsCommand = defineCommand(
   (command) =>
     command
       .add(...manualAllocationCommands)
+      .add(
+        defineCommand(
+          "reallocate",
+          {
+            description:
+              "Move category funds with one native reallocation transaction and history entry",
+            sections: [
+              {
+                body: "Use an explicit budget, source, destination, positive minor-unit amount, month and native device calculation timezone. The timezone must match the CLI runtime. Preview --dry-run --full first. Supports only the latest saved month, current or future, ordinary flat unlinked categories with explicit ALL carryover and no targets or coverage strategies. Every consumed financial amount, allocation history value, link and counter must be explicit. All four indexes must be small, complete and explicitly untrimmed. Missing values block execution without defaults. Source availability must cover the transfer. The CLI atomically saves the native transaction, both allocations, four preview indexes, counters, category histories and the root MONEY_REALLOCATION history entry. This consolidates the native app's two save boundaries. No manual allocation, account money, pool resources or carryover is written. Historical propagation and future period materialization remain unsupported. Inspect the preview before committing; live commands read fresh state. Permanent transaction operation records bind the request before dispatch. Use transactions operation/recover with the original request ID after uncertainty; neither retry nor recovery resends. Marker/current-value observations cannot prove a lost acknowledgment. Keep BEBU_HOME. Undo, deletion, linked categories, hierarchy, large/trimmed indexes and the held migration discrepancy remain unsupported.",
+                title: "Supported subset",
+              },
+            ],
+          },
+          (leaf) =>
+            leaf
+              .flags(
+                ...writeFlags,
+                { description: "Source category ID", name: "from", required: true, type: "string" },
+                {
+                  description: "Destination category ID",
+                  name: "to",
+                  required: true,
+                  type: "string",
+                },
+                {
+                  description: "Positive transfer amount in integer minor units",
+                  name: "amount-minor",
+                  required: true,
+                  type: "number",
+                },
+                {
+                  description: "Latest saved YYYY-MM month",
+                  name: "month",
+                  required: true,
+                  type: "string",
+                },
+                {
+                  description: "Native device timezone, matching the CLI runtime timezone",
+                  name: "calculation-timezone",
+                  required: true,
+                  type: "string",
+                }
+              )
+              .action(async ({ flags, stdout }) => {
+                const result = await new ReallocationService(
+                  await clientFor(flags.budget)
+                ).reallocate(
+                  {
+                    amountMinor: flags["amount-minor"],
+                    calculationTimezone: flags["calculation-timezone"],
+                    from: flags.from,
+                    month: flags.month,
+                    to: flags.to,
+                  },
+                  writeOptions(flags)
+                );
+
+                print(stdout, writeResult(result, flags.full), flags.compact);
+              })
+        )
+      )
       .add(
         defineCommand(
           "preview",

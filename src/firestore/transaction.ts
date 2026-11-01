@@ -4,6 +4,11 @@ import type { BeyondClient } from "./client.ts";
 import { DataSchema, DocumentRoot, WireDocumentSchema, decode, fieldPath } from "./encoding.ts";
 import type { FirestoreDocument, Write } from "./encoding.ts";
 
+export const CommitResponseSchema = z.object({
+  commitTime: z.iso.datetime({ offset: true }),
+  writeResults: z.array(DataSchema),
+});
+
 const ReadResultSchema = z.union([
   z.object({ found: WireDocumentSchema }),
   z.object({ missing: z.string() }),
@@ -172,8 +177,12 @@ export class FirestoreTransaction {
     return documents;
   }
 
-  async commit(writes: Write[]) {
-    if (this.finished || this.mode !== "write" || writes.length === 0) {
+  validateWrites(client: BeyondClient, writes: Write[]) {
+    if (client !== this.client) {
+      throw new Error("Transaction must be owned by the committing client");
+    }
+
+    if (this.finished || writes.length === 0) {
       throw new Error("Invalid transaction commit");
     }
 
@@ -219,17 +228,27 @@ export class FirestoreTransaction {
         }
       }
     }
+  }
+
+  async commit(writes: Write[]) {
+    if (this.mode !== "write") {
+      throw new Error("Invalid transaction commit");
+    }
+
+    this.validateWrites(this.client, writes);
 
     this.finished = true;
 
-    return await this.client.request(
-      `${DocumentRoot}:commit`,
-      z.object({ commitTime: z.iso.datetime({ offset: true }), writeResults: z.array(DataSchema) }),
-      {
-        body: { transaction: this.id, writes },
-        method: "POST",
-      }
-    );
+    const response = await this.client.request(`${DocumentRoot}:commit`, CommitResponseSchema, {
+      body: { transaction: this.id, writes },
+      method: "POST",
+    });
+
+    if (response.writeResults.length !== writes.length) {
+      throw new Error("Incomplete transaction commit acknowledgment");
+    }
+
+    return response;
   }
 
   async rollback() {

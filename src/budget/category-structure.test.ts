@@ -128,7 +128,15 @@ function fixture() {
         );
       }
 
-      return await Promise.resolve(Response.json({ commitTime: Timestamp }));
+      return await Promise.resolve(
+        Response.json({
+          commitTime: Timestamp,
+          writeResults: z
+            .array(z.unknown())
+            .parse(body.writes)
+            .map(() => ({})),
+        })
+      );
     }
 
     if (path.includes("/saveMarkers/")) {

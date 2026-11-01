@@ -13,6 +13,8 @@ Plan and save manual allocations, inspect history, or preview target funding
   sending writes
 - [`preview`](allocations/preview.md) - Calculate target or restricted smart funding without
   changing the budget
+- [`reallocate`](allocations/reallocate.md) - Move category funds with one native reallocation
+  transaction and history entry
 - [`recover`](allocations/recover.md) - Observe the original allocation marker without resending
   uncertain work
 - [`report`](allocations/report.md) - Summarize monthly allocations by category and nature

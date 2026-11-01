@@ -126,14 +126,27 @@ active accounts require a separate aggregate policy. For an identical allocation
 original plan and request ID. Inspect allocations operation or allocations recover. Keep BEBU_HOME
 and its permanent operation records. An unknown outcome requires observation; recover does not
 resend it. Allocation recovery relies on the trusted local record and native marker, with no
-cross-device payload binding. For overspending coverage, reallocation, automatic income allocation,
-or allocation undo, use the native Beyond Budget app. CLI income does not fund categories. Uncleared
-income changes only the uncleared account balance. Clearing income moves the amount into the cleared
-balance and account history. Unclearing reverses those movements. Cleared, completed income
-increases allocation resources in a zero-based budget. Income history requires agreement between its
-stored month and its due-date month in the CLI runtime timezone. Native income allocation,
-linked-account allocation, and bulk allocation are separate workflows. Their availability depends on
-the native app and its settings.
+cross-device payload binding. For a bounded category transfer, read allocations reallocate and
+preview with --dry-run --full. Pass explicit --from, --to, --amount-minor, --month, --budget and
+--calculation-timezone values. Only the latest saved current or future month and ordinary flat
+unlinked categories are supported. The native device timezone must match the CLI runtime. Every
+consumed financial amount, counter, link and monthly allocation history value must be explicit. All
+four preview indexes must be complete, explicitly untrimmed, contain fewer than 20 entries, and
+occupy at most 25,000 JSON bytes each. Missing fields stop execution without defaults. Source
+availability must cover the positive transfer. The CLI saves the native REALLOCATE_MONEY
+transaction, category funds, indexes, counters, category histories and MONEY_REALLOCATION history
+atomically. It consolidates the app's two save boundaries. Use transactions operation/recover with
+the original request ID after uncertainty. Recovery and matching retries only observe; neither
+resends. Keep BEBU_HOME and its permanent records. A marker or current value cannot prove a lost
+acknowledgment. Live commands read fresh snapshots after the preview. This workflow does not repair
+historical carryover or authorize the held migration transfer. For unsupported reallocation shapes,
+automatic income allocation, or allocation undo, use the native app. CLI income does not fund
+categories. Uncleared income changes only the uncleared account balance. Clearing income moves the
+amount into the cleared balance and account history. Unclearing reverses those movements. Cleared,
+completed income increases allocation resources in a zero-based budget. Income history requires
+agreement between its stored month and its due-date month in the CLI runtime timezone. Native income
+allocation, linked-account allocation, and bulk allocation are separate workflows. Their
+availability depends on the native app and its settings.
 
 A completed CLI card expense can overspend its category and increases the linked payment category's
 otherAmount by the full amount. Use transactions create with type REFUND, positive amountMinor, a
@@ -229,6 +242,7 @@ and marker expiry do not authorize replay.
 | `bebu allocations history`    | runnable | Read native allocation history, optionally with matching transactions                       | [commands/allocations/history.md](commands/allocations/history.md)       |
 | `bebu allocations operation`  | runnable | Inspect the original local allocation operation without sending writes                      | [commands/allocations/operation.md](commands/allocations/operation.md)   |
 | `bebu allocations preview`    | runnable | Calculate target or restricted smart funding without changing the budget                    | [commands/allocations/preview.md](commands/allocations/preview.md)       |
+| `bebu allocations reallocate` | runnable | Move category funds with one native reallocation transaction and history entry              | [commands/allocations/reallocate.md](commands/allocations/reallocate.md) |
 | `bebu allocations recover`    | runnable | Observe the original allocation marker without resending uncertain work                     | [commands/allocations/recover.md](commands/allocations/recover.md)       |
 | `bebu allocations report`     | runnable | Summarize monthly allocations by category and nature                                        | [commands/allocations/report.md](commands/allocations/report.md)         |
 | `bebu allocations set`        | runnable | Preview one absolute allocation or match its linked savings account                         | [commands/allocations/set.md](commands/allocations/set.md)               |

@@ -130,7 +130,20 @@ Matching uses one active savings account's cleared balance. Several active accou
 For an identical allocation retry, reuse the original plan and request ID. Inspect allocations operation or allocations recover.
 Keep BEBU_HOME and its permanent operation records. An unknown outcome requires observation; recover does not resend it.
 Allocation recovery relies on the trusted local record and native marker, with no cross-device payload binding.
-For overspending coverage, reallocation, automatic income allocation, or allocation undo, use the native Beyond Budget app.
+For a bounded category transfer, read allocations reallocate and preview with --dry-run --full.
+Pass explicit --from, --to, --amount-minor, --month, --budget and --calculation-timezone values.
+Only the latest saved current or future month and ordinary flat unlinked categories are supported.
+The native device timezone must match the CLI runtime. Every consumed financial amount, counter,
+link and monthly allocation history value must be explicit. All four preview indexes must be complete,
+explicitly untrimmed, contain fewer than 20 entries, and occupy at most 25,000 JSON bytes each.
+Missing fields stop execution without defaults. Source availability must cover the positive transfer.
+The CLI saves the native REALLOCATE_MONEY transaction, category funds, indexes, counters, category
+histories and MONEY_REALLOCATION history atomically. It consolidates the app's two save boundaries.
+Use transactions operation/recover with the original request ID after uncertainty. Recovery and matching
+retries only observe; neither resends. Keep BEBU_HOME and its permanent records. A marker or current
+value cannot prove a lost acknowledgment. Live commands read fresh snapshots after the preview.
+This workflow does not repair historical carryover or authorize the held migration transfer.
+For unsupported reallocation shapes, automatic income allocation, or allocation undo, use the native app.
 CLI income does not fund categories. Uncleared income changes only the uncleared account balance.
 Clearing income moves the amount into the cleared balance and account history. Unclearing reverses those movements.
 Cleared, completed income increases allocation resources in a zero-based budget.

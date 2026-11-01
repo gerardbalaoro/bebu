@@ -24,8 +24,10 @@ recovery, and remaining financial support boundaries.
 
 Use the [generated command reference](../../skills/bebu/SKILL.md) for arguments and restrictions.
 The preview supports a limited set of flat zero-based budgets and targets. It reports
-`executionSupported: false`. Manual allocation has a separate transaction-protected write path.
-Reallocation, undo, automatic income allocation, and smart allocation writes remain unsupported.
+`executionSupported: false`. Manual allocation has a separate transaction-protected write path. Use
+[Reallocation Writer](reallocation-writer.md) for bounded category transfers with atomic transaction
+and history persistence. Undo, automatic income allocation, and smart allocation writes remain
+unsupported.
 
 Transaction dry runs show account balances, category funds, payment reserves, and allocation
 resources. Cleared, completed zero-based income increases allocation resources but does not fund

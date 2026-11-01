@@ -150,10 +150,17 @@ export class BeyondClient {
       throw new Error("request-id must contain exactly 20 letters or digits");
     }
 
+    if (snapshot !== undefined) {
+      snapshot.validateWrites(this, writes);
+    }
+
     for (const write of writes) {
       const path = write.update?.name ?? write.delete;
 
-      if (path?.startsWith(`${this.budgetPath}/`) !== true) {
+      if (
+        path?.startsWith(`${this.budgetPath}/`) !== true &&
+        !(snapshot !== undefined && path === this.budgetPath)
+      ) {
         throw new Error(
           "The write is outside the selected budget. Choose a record in the selected budget"
         );

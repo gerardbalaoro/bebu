@@ -11,6 +11,7 @@ import type { BeyondClient } from "../firestore/client.ts";
 import { DataSchema, DocumentRoot, newId } from "../firestore/encoding.ts";
 import type { CommitOptions, CommitResult, Write } from "../firestore/encoding.ts";
 import { FirestoreCommitError, FirestoreError } from "../firestore/error.ts";
+import { CommitResponseSchema } from "../firestore/transaction.ts";
 import type { FirestoreTransaction } from "../firestore/transaction.ts";
 import { dataHome } from "../state.ts";
 import { saveAllocationFile } from "./allocation-operations.ts";
@@ -31,7 +32,7 @@ const RequestIdSchema = z
   .regex(/^[A-Za-z0-9]{20}$/u, "request-id must contain exactly 20 letters or digits");
 
 const IntentSchema = z.strictObject({
-  action: z.enum(["create", "update", "delete"]),
+  action: z.enum(["create", "update", "delete", "reallocate"]),
   input: DataSchema,
   transactionId: z.string().optional(),
 });
@@ -212,7 +213,11 @@ export class TransactionOperations {
       selected.map(async (write) => {
         const document = write.update?.name ?? write.delete;
 
-        if (document === undefined || !document.startsWith(`${this.client.budgetPath}/`)) {
+        if (
+          document === undefined ||
+          (document !== this.client.budgetPath &&
+            !document.startsWith(`${this.client.budgetPath}/`))
+        ) {
           throw new Error("Invalid submitted observation path");
         }
 
@@ -367,7 +372,7 @@ export class TransactionOperations {
     options: CommitOptions,
     snapshot?: FirestoreTransaction
   ): Promise<CommitResult> {
-    const preview = await this.client.commit(writes, { ...options, dryRun: true });
+    const preview = await this.client.commit(writes, { ...options, dryRun: true }, snapshot);
 
     if (!("body" in preview)) {
       throw new Error("Expected a compiled transaction body");
@@ -411,12 +416,15 @@ export class TransactionOperations {
     try {
       const response =
         snapshot === undefined
-          ? await this.client.request(
-              `${DocumentRoot}:commit`,
-              z.object({ commitTime: z.string() }),
-              { body: preview.body, method: "POST" }
-            )
+          ? await this.client.request(`${DocumentRoot}:commit`, CommitResponseSchema, {
+              body: preview.body,
+              method: "POST",
+            })
           : await snapshot.commit(preview.body.writes);
+
+      if (response.writeResults.length !== body.writes.length) {
+        throw new Error("Incomplete transaction commit acknowledgment");
+      }
 
       acknowledged = response.commitTime;
       await this.save(requestId, { commitTime: acknowledged, status: "committed" });

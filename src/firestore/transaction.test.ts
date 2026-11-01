@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/no-unknown-parameters -- Failure callbacks parse caught values at the test boundary. */
 /* oxlint-disable no-await-in-loop -- Each malformed stream is tested independently. */
 import { expect, test } from "bun:test";
+import assert from "node:assert/strict";
 
 import { z } from "zod";
 
@@ -122,4 +123,76 @@ test("transaction root support cannot replace the budget or edit unrelated root 
 
   expect(z.object({ message: z.string() }).parse(failure).message).toContain("currentDocument");
   expect(requests).toBe(1);
+});
+
+test("only an active caller-owned write snapshot compiles one masked allocation-history root patch", async () => {
+  const client = new BeyondClient(session, {
+    fetcher: async () => await Promise.resolve(Response.json({ transaction: "transaction" })),
+  });
+
+  const transaction = await FirestoreTransaction.begin(client, "write");
+  const historyId = "abcdefghijklmnopqrst";
+
+  const write = {
+    currentDocument: { updateTime: version },
+    update: {
+      fields: encodeFields({
+        allocationHistory: { [historyId]: { source: "MONEY_REALLOCATION" } },
+        changeSource: "USER",
+      }),
+      name: path,
+    },
+    updateMask: { fieldPaths: [`allocationHistory.${historyId}`, "changeSource"] },
+  };
+
+  const preview = await client.commit([write], { dryRun: true }, transaction);
+  expect(preview).toMatchObject({ body: { writes: [write, expect.anything()] }, dryRun: true });
+  await assert.rejects(client.commit([write], { dryRun: true }), /outside the selected budget/u);
+
+  const another = new BeyondClient(session, {
+    fetcher: async () => await Promise.resolve(Response.json({})),
+  });
+
+  await assert.rejects(another.commit([write], { dryRun: true }, transaction), /owned/u);
+  await assert.rejects(
+    client.commit(
+      [{ ...write, updateMask: { fieldPaths: ["allocationHistory", "changeSource"] } }],
+      { dryRun: true },
+      transaction
+    ),
+    /one masked allocation history/u
+  );
+  await assert.rejects(
+    client.commit(
+      [
+        {
+          ...write,
+          update: {
+            ...write.update,
+            fields: { ...write.update.fields, name: { stringValue: "replacement" } },
+          },
+        },
+      ],
+      { dryRun: true },
+      transaction
+    )
+  );
+});
+
+test("read-only snapshots compile previews without dispatch and cannot commit", async () => {
+  let calls = 0;
+
+  const client = new BeyondClient(session, {
+    fetcher: async () => {
+      calls += 1;
+
+      return await Promise.resolve(Response.json({ transaction: "read-only" }));
+    },
+  });
+
+  const snapshot = await FirestoreTransaction.begin(client, "read");
+  const writes = [{ update: { fields: {}, name: `${path}/stashes/categories` } }];
+  expect(await client.commit(writes, { dryRun: true }, snapshot)).toMatchObject({ dryRun: true });
+  await assert.rejects(snapshot.commit(writes), /Invalid transaction commit/u);
+  expect(calls).toBe(1);
 });

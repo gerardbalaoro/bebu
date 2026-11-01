@@ -307,7 +307,13 @@ function fixture(options: { materializedFuture?: boolean } = {}) {
         );
       }
 
-      return Response.json({ commitTime: Timestamp, writeResults: [] });
+      return Response.json({
+        commitTime: Timestamp,
+        writeResults: z
+          .array(z.unknown())
+          .parse(body.writes)
+          .map(() => ({})),
+      });
     }
 
     const data = documents.get(path);

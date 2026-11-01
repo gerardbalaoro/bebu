@@ -3401,7 +3401,13 @@ test("recurring creation commits one canonical entry, its obligations and indexe
     assert.equal(new URL(request.url).pathname.endsWith("/documents:commit"), true);
     requests.push(z.object({ writes: z.array(z.unknown()) }).parse(await request.json()));
 
-    return Response.json({ commitTime: timestamp });
+    return Response.json({
+      commitTime: timestamp,
+      writeResults: z
+        .array(z.unknown())
+        .parse(requests.at(-1)?.writes)
+        .map(() => ({})),
+    });
   };
 
   const service = new TransactionService(

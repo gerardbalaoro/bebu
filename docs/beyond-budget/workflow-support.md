@@ -13,6 +13,7 @@ Historical funding changes remain blocked when later saved periods exist.
 | Direct category hierarchy       | `categories attach ID --parent PARENT_ID`; `categories detach ID --parent EXPECTED_PARENT_ID` | One level, same group, ordinary modifiable family; no targets, explicit policy settings, or account links |
 | Target removal                  | `targets remove CATEGORY_ID --budget BUDGET --dry-run`                                        | Complete positive SPENDING/MONTHLY target on a flat, active, modifiable ordinary category                 |
 | Target creation and editing     | `targets create CATEGORY_ID`; `targets update CATEGORY_ID`                                    | Explicit positive minor-unit amount and ALL/NONE target carryover; same category subset                   |
+| Bounded category reallocation   | `allocations reallocate --from SOURCE --to DESTINATION --amount-minor AMOUNT --month YYYY-MM` | Latest saved current/future month, explicit operands, flat unlinked categories, small complete indexes    |
 | Nullable transaction creator    | Preserve explicit `createdBy:null`                                                            | Other financial, reconciliation, and editability checks still apply                                       |
 | Legacy card link representation | Preserve explicit null link type and version                                                  | Saved/current card and reciprocal payment-category links must otherwise agree                             |
 | Durable transaction inspection  | `transactions operation REQUEST_ID --budget BUDGET`                                           | Trusted records from this installation                                                                    |
@@ -102,11 +103,23 @@ natively also restored every document and the exact category-index wire fields. 
 permits more cases than the CLI. The CLI family, link, graph, and ordering checks define its
 conservative subset.
 
+## Category Reallocation
+
+Use `allocations reallocate` with an explicit budget and review `--dry-run --full` first.
+[Reallocation Writer](reallocation-writer.md) describes the native evidence, exact effects, and
+limits. The CLI saves both native logical components in one optimistic transaction, including their
+history. A complete acknowledgment covers the whole envelope. An uncertain outcome never starts a
+second phase or a replay.
+
+The initial subset requires explicit financial operands and complete, small, explicitly untrimmed
+indexes. Sparse native records remain blocked without defaults. This capability does not repair the
+migration discrepancy or authorize its held transfer.
+
 ## Durable Transaction Recovery
 
-Live create/update/delete requests now claim a permanent local identity before financial planning.
-The identity binds actor, project, budget, action, transaction, and normalized original input.
-Private operation files retain the exact compiled body, hash, fixed IDs, and dispatch state.
+Live create/update/delete/reallocate requests now claim a permanent local identity before financial
+planning. The identity binds actor, project, budget, action, transaction, and normalized original
+input. Private operation files retain the exact compiled body, hash, fixed IDs, and dispatch state.
 Exclusive claims, private permissions, and synchronized files/directories preserve the boundary
 across concurrent callers and crashes. Keep `BEBU_HOME` and its permanent records.
 
@@ -117,8 +130,9 @@ resends financial writes.
 Recovery reports the marker and up to 50 current submitted-document versions and precondition
 comparisons. Remaining observations are counted. These reads are not one consistent snapshot and do
 not establish an unknown commit outcome. Native error codes remain in `commitDiagnostic`, separate
-from local status. Only the original exact acknowledgment establishes a saved committed state in
-this implementation.
+from local status. Only a valid original acknowledgment with one write result per submitted write
+establishes a committed state. Missing or malformed acknowledgments remain unknown. Recovery also
+observes submitted budget-root history versions.
 
 After an authoritative rejection, inspect fresh state and review a new dry run before using a new
 request ID. For create, retain the resolved transaction identity/date from the original submission.
@@ -138,7 +152,7 @@ evidence. A replacement ID must not conceal an unresolved earlier outcome.
 | Noneditable refunds             | Ordinary native category handler retains the original record; no alternative reassignment contract established                                 |
 | Other category/group lifecycle  | Creation, cross-group moves, archive, ordering, subtrees, targeted or linked families, and aggregate/coverage settings                         |
 | Other target workflows          | Savings, repeating, snoozed, hierarchical, incomplete, unknown-field, and non-native timestamp cases; broader removal subsets                  |
-| Native reallocation             | Transaction/index/allocation effects plus separately saved MONEY_REALLOCATION history, with recovery across both save boundaries               |
+| Broader reallocation            | Historical propagation, linked/targeted/hierarchical categories, sparse operands, large or trimmed indexes, and undo remain unsupported        |
 | Shared recovery                 | No payload-bound remote receipt or cross-device/crash proof after local-record loss                                                            |
 
 Native bulk category update 52151 does not itself exclude splits or reconciled records. That is not
