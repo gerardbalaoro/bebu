@@ -11,6 +11,7 @@ Historical funding changes remain blocked when later saved periods exist.
 | Category rename                 | `categories rename ID --name NAME --budget BUDGET --dry-run`            | Active DEFAULT category with explicit `modifiable:true`; name only                        |
 | Group lookup and rename         | `groups list`; `groups rename ID --name NAME --budget BUDGET --dry-run` | Same conservative CLI eligibility; no creation or hierarchy changes                       |
 | Target removal                  | `targets remove CATEGORY_ID --budget BUDGET --dry-run`                  | Complete positive SPENDING/MONTHLY target on a flat, active, modifiable ordinary category |
+| Target creation and editing     | `targets create CATEGORY_ID`; `targets update CATEGORY_ID`              | Explicit positive minor-unit amount and ALL/NONE target carryover; same category subset   |
 | Nullable transaction creator    | Preserve explicit `createdBy:null`                                      | Other financial, reconciliation, and editability checks still apply                       |
 | Legacy card link representation | Preserve explicit null link type and version                            | Saved/current card and reciprocal payment-category links must otherwise agree             |
 | Durable transaction inspection  | `transactions operation REQUEST_ID --budget BUDGET`                     | Trusted records from this installation                                                    |
@@ -26,21 +27,35 @@ missing values. It does not directly write funds, accounts, history, or transact
 Removing target demand intentionally changes future suggestions and automatic funding decisions.
 Savings, repeating, snoozed, hierarchical, and incomplete target shapes remain unsupported.
 
+For creation or editing, pass `--amount-minor AMOUNT --carry-over ALL` or `--carry-over NONE`. Use
+an explicit budget and review `--dry-run --full` first. Creation requires an absent target field.
+Editing requires the complete known target shape, without unknown fields, and a native whole-second
+timestamp. Both operations replace the complete target. They preserve category settings and raw
+account links without interpreting them. The target carryover setting changes demand; it does not
+change category carryover or saved funds.
+
+Native spending-target edits renew `createdAt` from the current clock. The CLI follows this behavior
+at whole-second precision. The preview shows the complete previous and proposed targets, including
+timestamps. An unchanged amount and policy skip the save. After an uncertain outcome or marker-only
+confirmation, inspect `targets list` before another command. Do not blindly retry.
+
 ## Native Evidence
 
 The function numbers below refer to the artifact identified in
 [Source Reconstruction](source-reconstruction.md). The findings come from indexed WAT inspection,
 not recovered server source.
 
-| Native Functions                              | Contract                                                                            |
-| --------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 50480 → 50452 → 50438 → 51368                 | Category presentation patch in the discovered category index                        |
-| 50583 → 50582 → 50576 → 51323                 | Group name patch                                                                    |
-| 77053 → 77066 → 77071 → 50446 → 50468 → 50485 | Confirm target removal and delete `data.categories.<id>.target`                     |
-| 48948, 51690                                  | Nullable creator decoding and preservation during serialization                     |
-| 49253                                         | Null creator produces a null preview creator ID                                     |
-| 51758                                         | Card reserve effects consume saved card type and payment-category ID, not link type |
-| 51847 → 51849                                 | Explicit null version prevents this linked-allocation predicate                     |
+| Native Functions                              | Contract                                                                                |
+| --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 50480 → 50452 → 50438 → 51368                 | Category presentation patch in the discovered category index                            |
+| 50583 → 50582 → 50576 → 51323                 | Group name patch                                                                        |
+| 77053 → 77066 → 77071 → 50446 → 50468 → 50485 | Confirm target removal and delete `data.categories.<id>.target`                         |
+| 77068 → 44701; 49244 → 44701                  | Initialize monthly spending targets and rebuild their creation timestamp from the clock |
+| 49243 → 53511; 50485 → 50452                  | Serialize the complete target with timestamp values and save only the target field      |
+| 48948, 51690                                  | Nullable creator decoding and preservation during serialization                         |
+| 49253                                         | Null creator produces a null preview creator ID                                         |
+| 51758                                         | Card reserve effects consume saved card type and payment-category ID, not link type     |
+| 51847 → 51849                                 | Explicit null version prevents this linked-allocation predicate                         |
 
 The target-delete branch checks empty-target identity and category ID. It bypasses target
 serialization and does not consume account links or call period/account/history companion writers.
@@ -54,6 +69,12 @@ canonical saved account target stays unchanged.
 Controlled disposable-budget checks confirmed the name-only changes and target removal. After
 restoring names and removing the temporary target, 73 captured budget documents matched their
 original raw values. This is bounded runtime evidence, not proof of all future backend behavior.
+
+Additional native and CLI create/edit/remove experiments captured 75 budget, stash, period, and
+canonical transaction documents. Each save changed only the selected target. All 75 document values
+matched their baseline after cleanup. The monthly spending branch does not read the saved creation
+timestamp when calculating demand. Other schedules can consume that timestamp and remain
+unsupported.
 
 ## Durable Transaction Recovery
 
@@ -90,7 +111,7 @@ evidence. A replacement ID must not conceal an unresolved earlier outcome.
 | Split changes                   | Complete sibling snapshot, group totals, indexes, native runtime parity, and conflict tests                                                    |
 | Noneditable refunds             | Ordinary native category handler retains the original record; no alternative reassignment contract established                                 |
 | Category/group lifecycle        | Create, move, detach, archive, ordering, descendant and aggregate-target effects                                                               |
-| Target creation/editing         | Typed native serialization, schedules, defaults, and runtime fixtures; removal is a separate operation                                         |
+| Other target workflows          | Savings, repeating, snoozed, hierarchical, incomplete, unknown-field, and non-native timestamp cases; broader removal subsets                  |
 | Native reallocation             | Transaction/index/allocation effects plus separately saved MONEY_REALLOCATION history, with recovery across both save boundaries               |
 | Shared recovery                 | No payload-bound remote receipt or cross-device/crash proof after local-record loss                                                            |
 

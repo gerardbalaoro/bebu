@@ -13,7 +13,7 @@ import { BeyondClient } from "../firestore/client.ts";
 import type { Fetcher } from "../firestore/client.ts";
 import { DataSchema, DocumentRoot, encodeFields } from "../firestore/encoding.ts";
 import { StructureService } from "./category-structure.ts";
-import { removeCategoryTarget } from "./target-removal.ts";
+import { removeCategoryTarget, saveCategoryTarget, TargetSettingsSchema } from "./target-writes.ts";
 import { TransactionOperations } from "./transaction-operations.ts";
 
 const BudgetPath = `${DocumentRoot}/budgets/structureLab`;
@@ -23,7 +23,7 @@ const Timestamp = "2026-11-01T00:00:00Z";
 const MonthlySpendingTarget = {
   amount: 125,
   carryOverStrategy: "NONE",
-  createdAt: Timestamp,
+  createdAt: "2026-11-01T00:00:00.000Z",
   dayOfMonth: null,
   dayOfWeek: null,
   dynamicSavingsTarget: false,
@@ -34,7 +34,7 @@ const MonthlySpendingTarget = {
   snoozeSchedule: {},
   type: "SPENDING",
   useAllocatedAmountOnly: null,
-};
+} as const;
 
 function fixture() {
   const index = {
@@ -58,6 +58,30 @@ function fixture() {
   const requests: { path: string; body: ReturnType<typeof DataSchema.parse> }[] = [];
   let conflict = false;
   let markerOnly = false;
+  let nativeTimestamps = true;
+
+  function encodeFixture(data: ReturnType<typeof DataSchema.parse>) {
+    const target = DataSchema.safeParse(DataSchema.parse(index.data.categories.leisure).target);
+    const createdAt = z.iso.datetime({ offset: true }).safeParse(target.data?.createdAt);
+
+    if (data !== index || !target.success || !createdAt.success || !nativeTimestamps) {
+      return encodeFields(data);
+    }
+
+    return encodeFields({
+      ...index,
+      data: {
+        ...index.data,
+        categories: {
+          ...index.data.categories,
+          leisure: {
+            ...index.data.categories.leisure,
+            target: { ...target.data, createdAt: new Date(createdAt.data) },
+          },
+        },
+      },
+    });
+  }
 
   const fetcher: Fetcher = async (input, init) => {
     const path = new URL(new Request(input).url).pathname.slice(4);
@@ -91,7 +115,7 @@ function fixture() {
                   }
                 : index;
 
-            return { found: { fields: encodeFields(data), name, updateTime: Timestamp } };
+            return { found: { fields: encodeFixture(data), name, updateTime: Timestamp } };
           })
         )
       );
@@ -130,7 +154,7 @@ function fixture() {
           : index;
 
       return await Promise.resolve(
-        Response.json({ fields: encodeFields(data), name: path, updateTime: Timestamp })
+        Response.json({ fields: encodeFixture(data), name: path, updateTime: Timestamp })
       );
     }
 
@@ -158,6 +182,9 @@ function fixture() {
     service: new StructureService(client),
     setConflict: () => {
       conflict = true;
+    },
+    setLegacyTimestamp: () => {
+      nativeTimestamps = false;
     },
     setMarkerOnly: () => {
       conflict = true;
@@ -254,6 +281,229 @@ test("target removal cannot retry or escape its snapshot on a concurrent change"
   expect(index).toEqual(original);
 });
 
+test("target creation serializes the complete native monthly spending shape without financial writes", async () => {
+  const { service, index, requests } = fixture();
+  const before = structuredClone(index);
+  const startedAt = Date.now();
+
+  const result = await saveCategoryTarget(
+    service.client,
+    "leisure",
+    "create",
+    {
+      amountMinor: 125,
+      carryOverStrategy: "NONE",
+    },
+    { dryRun: true }
+  );
+
+  assert.ok("dryRun" in result);
+  const { target } = result.summary;
+  assert.ok(target);
+  expect(Date.parse(target.createdAt)).toBeGreaterThanOrEqual(Math.floor(startedAt / 1000) * 1000);
+  expect(Date.parse(target.createdAt)).toBeLessThanOrEqual(Date.now());
+  expect(target).toEqual({ ...MonthlySpendingTarget, createdAt: target.createdAt });
+  expect(result.body.writes[0]).toEqual({
+    currentDocument: { updateTime: Timestamp },
+    update: {
+      fields: encodeFields({
+        data: {
+          categories: { leisure: { target: { ...target, createdAt: new Date(target.createdAt) } } },
+        },
+      }),
+      name: IndexPath,
+    },
+    updateMask: { fieldPaths: ["data.categories.leisure.target"] },
+  });
+  expect(result.body.writes).toHaveLength(2);
+  expect(JSON.stringify(result.body.writes[0])).toContain('"timestampValue"');
+  expect(result.summary).toMatchObject({
+    directFundingChanges: false,
+    futureTargetDemand: "changed",
+    previousTarget: null,
+  });
+  expect(requests[0]?.body).toEqual({ options: { readOnly: {} } });
+  expect(requests.some((r) => r.path.endsWith(":commit"))).toBe(false);
+  expect(index).toEqual(before);
+});
+
+test("target editing renews the spending timestamp and writes the whole known target without changing category carryover", async () => {
+  const { service, index } = fixture();
+  Object.assign(index.data.categories.leisure, { target: MonthlySpendingTarget });
+
+  const result = await saveCategoryTarget(
+    service.client,
+    "leisure",
+    "update",
+    {
+      amountMinor: 250,
+      carryOverStrategy: "ALL",
+    },
+    { dryRun: true }
+  );
+
+  assert.ok("dryRun" in result);
+  assert.deepEqual(result.summary.target, {
+    ...MonthlySpendingTarget,
+    amount: 250,
+    carryOverStrategy: "ALL",
+    createdAt: result.summary.target?.createdAt,
+  });
+  expect(Date.parse(result.summary.target?.createdAt ?? "")).toBeGreaterThan(Date.parse(Timestamp));
+  expect(JSON.stringify(result.body.writes[0])).toContain('"timestampValue"');
+  expect(result.summary.previousTarget).toEqual(MonthlySpendingTarget);
+  expect(result.body.writes[0]?.updateMask?.fieldPaths).toEqual(["data.categories.leisure.target"]);
+  expect(index.data.categories.leisure.carryOverStrategy).toBe("ALL");
+});
+
+test("target create and update cannot silently replace or invent an existing target", async () => {
+  const { service, index, requests } = fixture();
+  const input = { amountMinor: 125, carryOverStrategy: "NONE" } as const;
+  await assert.rejects(
+    saveCategoryTarget(service.client, "leisure", "update", input),
+    /existing target/u
+  );
+  Object.assign(index.data.categories.leisure, { target: MonthlySpendingTarget });
+  await assert.rejects(
+    saveCategoryTarget(service.client, "leisure", "create", input),
+    /already has/u
+  );
+  Object.assign(index.data.categories.leisure, { target: null });
+  await assert.rejects(
+    saveCategoryTarget(service.client, "leisure", "create", input),
+    /already has/u
+  );
+  expect(requests.some((r) => r.path.endsWith(":commit"))).toBe(false);
+});
+
+test.each([
+  { amountMinor: 0, carryOverStrategy: "NONE" },
+  { amountMinor: -1, carryOverStrategy: "NONE" },
+  { amountMinor: 1.5, carryOverStrategy: "NONE" },
+  { amountMinor: Number.MAX_SAFE_INTEGER + 1, carryOverStrategy: "NONE" },
+  { amountMinor: 125 },
+  { amountMinor: 125, carryOverStrategy: "UNKNOWN" },
+  { amountMinor: 125, carryOverStrategy: "NONE", type: "SAVINGS" },
+])(
+  "target settings reject invalid amounts, missing policy, and unsupported fields: %j",
+  async (input) => {
+    const { service, requests } = fixture();
+    await assert.rejects(
+      async () =>
+        await saveCategoryTarget(
+          service.client,
+          "leisure",
+          "create",
+          TargetSettingsSchema.parse(input)
+        )
+    );
+    expect(requests).toHaveLength(0);
+  }
+);
+
+test.each([
+  { unknownSetting: true },
+  { snoozeSchedule: { "2026-12": true } },
+  { createdAt: "not-a-date" },
+  { createdAt: "2026-11-01T00:00:00.123Z" },
+  { repeatIntervalMonths: 1 },
+  { type: "SAVINGS" },
+  { useAllocatedAmountOnly: true },
+  { dynamicSavingsTarget: true },
+  { dayOfMonth: 1 },
+])(
+  "target edit rejects unmodeled stored settings instead of dropping them: %j",
+  async (settings) => {
+    const { service, index, requests } = fixture();
+    Object.assign(index.data.categories.leisure, {
+      target: { ...MonthlySpendingTarget, ...settings },
+    });
+    await assert.rejects(
+      saveCategoryTarget(service.client, "leisure", "update", {
+        amountMinor: 250,
+        carryOverStrategy: "ALL",
+      }),
+      /monthly spending/u
+    );
+    expect(requests.some((r) => r.path.endsWith(":commit"))).toBe(false);
+  }
+);
+
+test("a legacy string creation date cannot be normalized into a financial target timestamp", async () => {
+  const { service, index, requests, setLegacyTimestamp } = fixture();
+  Object.assign(index.data.categories.leisure, { target: MonthlySpendingTarget });
+  setLegacyTimestamp();
+  await assert.rejects(
+    saveCategoryTarget(service.client, "leisure", "update", {
+      amountMinor: 250,
+      carryOverStrategy: "NONE",
+    }),
+    /native createdAt timestamp/u
+  );
+  expect(requests.some((r) => r.path.endsWith(":commit"))).toBe(false);
+});
+
+test("unchanged target settings do not save or create a marker", async () => {
+  const { service, index, requests } = fixture();
+  Object.assign(index.data.categories.leisure, { target: MonthlySpendingTarget });
+  expect(
+    await saveCategoryTarget(service.client, "leisure", "update", {
+      amountMinor: 125,
+      carryOverStrategy: "NONE",
+    })
+  ).toMatchObject({ changed: false, committed: false });
+  expect(requests.some((r) => r.path.endsWith(":commit"))).toBe(false);
+});
+
+test("target save rejects concurrency conflicts without automatic retries or marker-only success", async () => {
+  const { service, requests, setConflict, setMarkerOnly } = fixture();
+  const input = { amountMinor: 125, carryOverStrategy: "NONE" } as const;
+  setConflict();
+  await assert.rejects(saveCategoryTarget(service.client, "leisure", "create", input), /ABORTED/u);
+  expect(requests.filter((r) => r.path.endsWith(":commit"))).toHaveLength(1);
+  expect(requests.find((r) => r.path.endsWith(":commit"))?.body.transaction).toBe(
+    "structure-snapshot"
+  );
+  setMarkerOnly();
+  await assert.rejects(
+    saveCategoryTarget(service.client, "leisure", "create", input),
+    /marker-only confirmation/u
+  );
+  expect(requests.filter((r) => r.path.endsWith(":commit"))).toHaveLength(2);
+});
+
+test.each([
+  { parentCategoryId: "parent" },
+  { modifiable: false },
+  { type: "CREDIT_CARD_PAYMENT" },
+  { archived: true },
+  { deleted: true },
+])("target creation preserves category eligibility: %j", async (settings) => {
+  const { service, index, requests } = fixture();
+  Object.assign(index.data.categories.leisure, settings);
+  await assert.rejects(
+    saveCategoryTarget(service.client, "leisure", "create", {
+      amountMinor: 125,
+      carryOverStrategy: "ALL",
+    }),
+    /flat ordinary/u
+  );
+  expect(requests.some((r) => r.path.endsWith(":commit"))).toBe(false);
+});
+
+test("target saves reject a parent with children and a mismatched stored identity", async () => {
+  const { service, index } = fixture();
+  const input = { amountMinor: 125, carryOverStrategy: "ALL" } as const;
+  Object.assign(index.data.categories, { child: { id: "child", parentCategoryId: "leisure" } });
+  await assert.rejects(
+    saveCategoryTarget(service.client, "leisure", "create", input),
+    /flat ordinary/u
+  );
+  Reflect.deleteProperty(index.data.categories, "child");
+  index.data.categories.leisure.id = "different";
+  await assert.rejects(saveCategoryTarget(service.client, "leisure", "create", input), /identity/u);
+});
+
 test("target removal deletes the whole native target field without changing funding or other configuration", async () => {
   const { service, index, requests } = fixture();
 
@@ -341,6 +591,52 @@ test("CLI rename, group lookup, and durable recovery routes expose the domain re
 
   try {
     await writeFile(process.env.BEBU_SESSION_FILE, JSON.stringify(service.client.session));
+
+    const createTarget = await captureExecute(createApp(), [
+      "targets",
+      "create",
+      "leisure",
+      "--budget",
+      "structureLab",
+      "--amount-minor",
+      "125",
+      "--carry-over",
+      "NONE",
+      "--dry-run",
+      "--full",
+      "--compact",
+    ]);
+
+    expect(createTarget.exitCode).toBe(0);
+    expect(JSON.parse(createTarget.stdout)).toMatchObject({
+      dryRun: true,
+      summary: {
+        target: { amount: 125, carryOverStrategy: "NONE", period: "MONTHLY", type: "SPENDING" },
+      },
+    });
+    Object.assign(index.data.categories.leisure, { target: MonthlySpendingTarget });
+
+    const updateTarget = await captureExecute(createApp(), [
+      "targets",
+      "update",
+      "leisure",
+      "--budget",
+      "structureLab",
+      "--amount-minor",
+      "250",
+      "--carry-over",
+      "ALL",
+      "--dry-run",
+      "--compact",
+    ]);
+
+    expect(updateTarget.exitCode).toBe(0);
+    expect(JSON.parse(updateTarget.stdout)).toMatchObject({
+      dryRun: true,
+      summary: {
+        target: { amount: 250, carryOverStrategy: "ALL" },
+      },
+    });
 
     const preview = await captureExecute(createApp(), [
       "categories",

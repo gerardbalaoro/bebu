@@ -104,7 +104,7 @@ remain unresolved; preserve existing data and do not blindly replay them.
 - [`session`](session.md) - Import authentication from a signed-in browser
 - [`skills`](skills.md) - Generate or install the bebu agent skill
 - [`tags`](tags.md) - Read tags
-- [`targets`](targets.md) - Inspect targets and remove supported monthly spending targets
+- [`targets`](targets.md) - Inspect, create, edit, or remove supported monthly spending targets
 - [`transactions`](transactions.md) - Read history and edit expenses, income, and upcoming recurring
   payments
 

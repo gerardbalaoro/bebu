@@ -49,8 +49,8 @@ Use categories rename ID --name NAME or groups rename ID --name NAME with an exp
 supported subset is active DEFAULT records with explicit modifiable:true and matching identities.
 Names use a CLI limit of 1–200 trimmed characters. A rename preserves financial, hierarchy, target,
 and unknown fields. After an uncertain rename outcome, inspect the current name before another
-command. Creation, hierarchy changes, detach, archive, and target creation/editing remain separate
-unsupported workflows.
+command. Category/group creation, hierarchy changes, detach, and archive remain separate unsupported
+workflows.
 
 ## Transaction history
 
@@ -82,7 +82,19 @@ and cannot save allocations.
 
 For allocation records, use allocations history. For category and nature totals, use allocations
 report. For positive historical averages, use allocations averages with an explicit reference month.
-For raw target settings, use targets list. Category availability is not target progress. For
+For raw target settings, use targets list. Category availability is not target progress. For a new
+ordinary monthly spending target, use targets create CATEGORY_ID --amount-minor AMOUNT --carry-over
+NONE. Choose ALL or NONE explicitly for the target carryover policy. For changing its amount and
+target carryover policy, use targets update with the same required flags. Use an explicit budget and
+inspect --dry-run --full before submitting either operation. Creation requires an absent target
+field and records the current time at native whole-second precision. Update requires a complete
+known target shape with a native whole-second creation timestamp. Like the native spending editor,
+changing settings renews createdAt from the current clock; review both timestamps in the preview.
+Unknown target fields, fractional creation times, non-native timestamp representations, and
+unsupported schedules block editing. The target carryover policy affects target demand; it does not
+change the category carryover policy or saved funds. These writes replace the complete target under
+its snapshot version; they do not save money or allocation history. After an uncertain outcome or
+marker-only confirmation, read targets list before another command. Do not blindly retry. For
 removing an existing ordinary monthly spending target, use targets remove CATEGORY_ID with an
 explicit budget and --dry-run. The subset requires a flat active DEFAULT category with
 modifiable:true and a complete known target shape. Repeat intervals, savings targets, snooze
@@ -90,8 +102,8 @@ schedules, and hierarchy remain guarded. Raw account links remain untouched and 
 native target removal does not consume them. Removal deletes the whole target under its snapshot
 version. Stored account money, category funding, and history are not directly changed. Future target
 demand and automatic funding suggestions intentionally change. Preview the complete previous target
-before submitting. Target creation and editing remain unsupported; removing a target does not repair
-funding or a carryover discrepancy.
+before submitting. Target changes do not repair funding or a carryover discrepancy. Other target
+types and schedules remain unsupported.
 
 For one manual allocation, use allocations set --dry-run with --amount-minor or --match-linked. The
 CLI calculates the complete pool, availability, linked-account diagnostics, and native history
@@ -234,9 +246,11 @@ and marker expiry do not authorize replay.
 | `bebu skills install`         | runnable | Generate and copy the bebu skill into .agents/skills in this project                        | [commands/skills/install.md](commands/skills/install.md)                 |
 | `bebu tags`                   | group    | Read tags                                                                                   | [commands/tags.md](commands/tags.md)                                     |
 | `bebu tags list`              | runnable | List IDs and usage counts for tags                                                          | [commands/tags/list.md](commands/tags/list.md)                           |
-| `bebu targets`                | group    | Inspect targets and remove supported monthly spending targets                               | [commands/targets.md](commands/targets.md)                               |
+| `bebu targets`                | group    | Inspect, create, edit, or remove supported monthly spending targets                         | [commands/targets.md](commands/targets.md)                               |
+| `bebu targets create`         | runnable | Create a positive monthly spending target                                                   | [commands/targets/create.md](commands/targets/create.md)                 |
 | `bebu targets list`           | runnable | Read target settings separately from category funds                                         | [commands/targets/list.md](commands/targets/list.md)                     |
 | `bebu targets remove`         | runnable | Remove a monthly spending target without changing stored funding                            | [commands/targets/remove.md](commands/targets/remove.md)                 |
+| `bebu targets update`         | runnable | Edit a positive monthly spending target                                                     | [commands/targets/update.md](commands/targets/update.md)                 |
 | `bebu transactions`           | group    | Read history and edit expenses, income, and upcoming recurring payments                     | [commands/transactions.md](commands/transactions.md)                     |
 | `bebu transactions create`    | runnable | Create one-off or recurring expenses, income, and card refunds without automatic allocation | [commands/transactions/create.md](commands/transactions/create.md)       |
 | `bebu transactions delete`    | runnable | Delete one occurrence or a verified recurring chain with atomic ledger reversal             | [commands/transactions/delete.md](commands/transactions/delete.md)       |

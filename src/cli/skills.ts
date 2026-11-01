@@ -62,7 +62,7 @@ Use groups list to find group IDs. Add --full to inspect the exact name-only pat
 The supported subset is active DEFAULT records with explicit modifiable:true and matching identities.
 Names use a CLI limit of 1–200 trimmed characters. A rename preserves financial, hierarchy, target, and unknown fields.
 After an uncertain rename outcome, inspect the current name before another command.
-Creation, hierarchy changes, detach, archive, and target creation/editing remain separate unsupported workflows.
+Category/group creation, hierarchy changes, detach, and archive remain separate unsupported workflows.
 
 ## Transaction history
 
@@ -92,13 +92,24 @@ The preview reports executionSupported:false and cannot save allocations.
 For allocation records, use allocations history. For category and nature totals, use allocations report.
 For positive historical averages, use allocations averages with an explicit reference month.
 For raw target settings, use targets list. Category availability is not target progress.
+For a new ordinary monthly spending target, use targets create CATEGORY_ID --amount-minor AMOUNT --carry-over NONE.
+Choose ALL or NONE explicitly for the target carryover policy.
+For changing its amount and target carryover policy, use targets update with the same required flags.
+Use an explicit budget and inspect --dry-run --full before submitting either operation.
+Creation requires an absent target field and records the current time at native whole-second precision.
+Update requires a complete known target shape with a native whole-second creation timestamp.
+Like the native spending editor, changing settings renews createdAt from the current clock; review both timestamps in the preview.
+Unknown target fields, fractional creation times, non-native timestamp representations, and unsupported schedules block editing.
+The target carryover policy affects target demand; it does not change the category carryover policy or saved funds.
+These writes replace the complete target under its snapshot version; they do not save money or allocation history.
+After an uncertain outcome or marker-only confirmation, read targets list before another command. Do not blindly retry.
 For removing an existing ordinary monthly spending target, use targets remove CATEGORY_ID with an explicit budget and --dry-run.
 The subset requires a flat active DEFAULT category with modifiable:true and a complete known target shape.
 Repeat intervals, savings targets, snooze schedules, and hierarchy remain guarded.
 Raw account links remain untouched and uninterpreted; native target removal does not consume them.
 Removal deletes the whole target under its snapshot version. Stored account money, category funding, and history are not directly changed.
 Future target demand and automatic funding suggestions intentionally change. Preview the complete previous target before submitting.
-Target creation and editing remain unsupported; removing a target does not repair funding or a carryover discrepancy.
+Target changes do not repair funding or a carryover discrepancy. Other target types and schedules remain unsupported.
 
 
 For one manual allocation, use allocations set --dry-run with --amount-minor or --match-linked.

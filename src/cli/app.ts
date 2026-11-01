@@ -26,7 +26,11 @@ import { budgetDiagnostics } from "../budget/diagnostics.ts";
 import { categoryFunding } from "../budget/funding.ts";
 import { LabelsSchema } from "../budget/labels.ts";
 import { CategoriesSchema } from "../budget/model.ts";
-import { removeCategoryTarget } from "../budget/target-removal.ts";
+import {
+  removeCategoryTarget,
+  saveCategoryTarget,
+  TargetSettingsSchema,
+} from "../budget/target-writes.ts";
 import { categoryTargets } from "../budget/targets.ts";
 import { HistoricalTransactionError } from "../budget/transaction-carryover.ts";
 import {
@@ -765,11 +769,59 @@ const allocationsCommand = defineCommand(
       )
 );
 
+const monthlySpendingTargetCommand = (action: "create" | "update") =>
+  defineCommand(
+    action,
+    {
+      description: `${action === "create" ? "Create" : "Edit"} a positive monthly spending target`,
+      sections: [
+        {
+          body: "Supports active DEFAULT categories with explicit modifiable:true and no parent or children. Both --amount-minor and --carry-over are required. The carry-over setting belongs to target demand; it does not change category carryover. Creation requires an absent target field and uses the current creation timestamp. Update requires a complete known SPENDING/MONTHLY target with a native whole-second timestamp. Like the native spending editor, changed settings renew createdAt from the current clock. Unknown fields, schedules, snoozes, savings targets, and hierarchy are rejected. The complete target is serialized and replaced under one snapshot version precondition. No funds, account, history, or transaction documents are directly changed; future target demand and automatic funding suggestions change. After an uncertain outcome or marker-only confirmation, inspect targets list before another command; do not blindly retry.",
+          title: "Supported subset",
+        },
+      ],
+    },
+    (leaf) =>
+      leaf
+        .flags(
+          ...writeFlags,
+          {
+            description: "Positive safe integer target amount in minor units",
+            name: "amount-minor",
+            required: true,
+            type: "number",
+          },
+          {
+            description: "Explicit target carryover policy: ALL or NONE",
+            name: "carry-over",
+            required: true,
+            type: "string",
+          }
+        )
+        .args(idArg)
+        .action(async ({ args, flags, stdout }) => {
+          const result = await saveCategoryTarget(
+            await clientFor(flags.budget),
+            args.id,
+            action,
+            TargetSettingsSchema.parse({
+              amountMinor: flags["amount-minor"],
+              carryOverStrategy: flags["carry-over"],
+            }),
+            writeOptions(flags)
+          );
+
+          print(stdout, writeResult(result, flags.full), flags.compact);
+        })
+  );
+
 const targetsCommand = defineCommand(
   "targets",
-  { description: "Inspect targets and remove supported monthly spending targets" },
+  { description: "Inspect, create, edit, or remove supported monthly spending targets" },
   (command) =>
     command
+      .add(monthlySpendingTargetCommand("create"))
+      .add(monthlySpendingTargetCommand("update"))
       .add(
         defineCommand(
           "remove",
@@ -777,7 +829,7 @@ const targetsCommand = defineCommand(
             description: "Remove a monthly spending target without changing stored funding",
             sections: [
               {
-                body: "Supports explicit positive SPENDING/MONTHLY targets on active DEFAULT categories with modifiable:true and no parent or children. Raw account links remain untouched and are not interpreted. Preview with --dry-run and an explicit budget. The complete target is deleted under a snapshot version precondition. Existing category funds, history, account money, and other settings are not directly changed. Future target demand and automatic funding suggestions intentionally change. Creation, edits, savings/repeating targets, and hierarchical categories require separate workflows.",
+                body: "Supports explicit positive SPENDING/MONTHLY targets on active DEFAULT categories with modifiable:true and no parent or children. Raw account links remain untouched and are not interpreted. Preview with --dry-run and an explicit budget. The complete target is deleted under a snapshot version precondition. Existing category funds, history, account money, and other settings are not directly changed. Future target demand and automatic funding suggestions intentionally change. Savings/repeating targets and hierarchical categories require separate workflows.",
                 title: "Supported subset",
               },
             ],

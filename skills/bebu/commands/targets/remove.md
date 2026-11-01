@@ -9,8 +9,7 @@ modifiable:true and no parent or children. Raw account links remain untouched an
 interpreted. Preview with --dry-run and an explicit budget. The complete target is deleted under a
 snapshot version precondition. Existing category funds, history, account money, and other settings
 are not directly changed. Future target demand and automatic funding suggestions intentionally
-change. Creation, edits, savings/repeating targets, and hierarchical categories require separate
-workflows.
+change. Savings/repeating targets and hierarchical categories require separate workflows.
 
 ## Usage
 
