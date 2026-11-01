@@ -77,7 +77,7 @@ A bounded categories create implementation requires explicit --budget, --group, 
 It supports nonempty flat ordinary groups with explicit safe unique orders and appends after the highest peer order.
 Review --dry-run --full. The new native DEFAULT/ALL category and empty stash are saved atomically without financial writes.
 Existing amounts and settings are untouched. No missing financial values are supplied.
-Its deployed CLI envelope still needs disposable-lab verification before production use.
+Deployed disposable-lab creation preserved all existing documents and matched the original complete acknowledgment.
 Permanent operation records bind the generated identity and body. Use transactions operation/recover after uncertainty; never replay or replace the request.
 
 ## Transaction history
@@ -162,6 +162,8 @@ A refund reduces card debt, category spending, and the linked payment reserve. I
 New refunds use editable:false, matching the native refund screen. These newly created refunds reject later updates and deletion.
 An existing imported positive OUTFLOW/REFUND with explicit editable:true retains that value.
 Its category edit uses signed refund effects and retains strict link, allocation, reconciliation, split and historical guards.
+For explicitly authorized monitored native allocation-capable or split category edits, read [Native Category And Split Edits](../../docs/beyond-budget/native-category-edits.md).
+That evidence defines bounded native cases; it does not enable CLI execution through existing guards.
 This existing CLI behavior does not establish a monitored native workflow for that imported shape.
 Expense categories linked to other accounts still require the native app.
 These effects do not allocate category funds. Historical dueAt timestamps remain intact; completed entries need a saved period.

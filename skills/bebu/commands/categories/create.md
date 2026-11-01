@@ -13,9 +13,10 @@ CATEGORY stash. Existing financial records are untouched; no missing financial a
 Review --dry-run --full. Live execution reads fresh state and binds the exact generated identity and
 commit body to permanent operation records. Use transactions operation/recover with the original
 request ID after uncertainty; never replay or replace it. Group creation, empty groups, other
-policies, hierarchy, funding and historical transaction edits remain unsupported. Retained native
-creation acknowledgments establish the write shape; deployed CLI creation still requires
-disposable-lab verification before production use.
+policies, hierarchy, funding and historical transaction edits remain unsupported. Native creation
+evidence and deployed disposable-lab CLI saves establish this subset. The original complete
+acknowledgment and full document comparisons confirm the creation envelope and preservation of
+existing records.
 
 ## Usage
 

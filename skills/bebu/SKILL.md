@@ -66,10 +66,10 @@ reordering remain unsupported. A bounded categories create implementation requir
 --budget, --group, --name, --icon and --color. It supports nonempty flat ordinary groups with
 explicit safe unique orders and appends after the highest peer order. Review --dry-run --full. The
 new native DEFAULT/ALL category and empty stash are saved atomically without financial writes.
-Existing amounts and settings are untouched. No missing financial values are supplied. Its deployed
-CLI envelope still needs disposable-lab verification before production use. Permanent operation
-records bind the generated identity and body. Use transactions operation/recover after uncertainty;
-never replay or replace the request.
+Existing amounts and settings are untouched. No missing financial values are supplied. Deployed
+disposable-lab creation preserved all existing documents and matched the original complete
+acknowledgment. Permanent operation records bind the generated identity and body. Use transactions
+operation/recover after uncertainty; never replay or replace the request.
 
 ## Transaction history
 
@@ -162,14 +162,17 @@ spending, and the linked payment reserve. It is stored as a positive OUTFLOW wit
 New refunds use editable:false, matching the native refund screen. These newly created refunds
 reject later updates and deletion. An existing imported positive OUTFLOW/REFUND with explicit
 editable:true retains that value. Its category edit uses signed refund effects and retains strict
-link, allocation, reconciliation, split and historical guards. This existing CLI behavior does not
-establish a monitored native workflow for that imported shape. Expense categories linked to other
-accounts still require the native app. These effects do not allocate category funds. Historical
-dueAt timestamps remain intact; completed entries need a saved period. An uncleared expense or
-refund changes only the uncleared account balance. Clearing moves it into the cleared balance and
-account history. Category spending and reserve effects apply regardless of clearing. History months
-use the CLI runtime timezone. Category refund spending history decreases; payee/tag spending history
-uses the absolute amount, matching the native app.
+link, allocation, reconciliation, split and historical guards. For explicitly authorized monitored
+native allocation-capable or split category edits, read
+[Native Category And Split Edits](../../docs/beyond-budget/native-category-edits.md). That evidence
+defines bounded native cases; it does not enable CLI execution through existing guards. This
+existing CLI behavior does not establish a monitored native workflow for that imported shape.
+Expense categories linked to other accounts still require the native app. These effects do not
+allocate category funds. Historical dueAt timestamps remain intact; completed entries need a saved
+period. An uncleared expense or refund changes only the uncleared account balance. Clearing moves it
+into the cleared balance and account history. Category spending and reserve effects apply regardless
+of clearing. History months use the CLI runtime timezone. Category refund spending history
+decreases; payee/tag spending history uses the absolute amount, matching the native app.
 
 ## Preview and retry
 

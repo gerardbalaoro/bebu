@@ -9,6 +9,7 @@ Historical funding changes remain blocked when later saved periods exist.
 | Operation                       | Command Or Behavior                                                                           | Boundary                                                                                                  |
 | ------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Category rename                 | `categories rename ID --name NAME --budget BUDGET --dry-run`                                  | Active DEFAULT category with explicit `modifiable:true`; name only                                        |
+| Ordinary category creation      | `categories create --budget BUDGET --group GROUP --name NAME --icon ICON --color COLOR`       | Nonempty flat ordinary group, explicit unique peer orders and existing style codes                        |
 | Group lookup and rename         | `groups list`; `groups rename ID --name NAME --budget BUDGET --dry-run`                       | Same conservative CLI eligibility; no creation or hierarchy changes                                       |
 | Direct category hierarchy       | `categories attach ID --parent PARENT_ID`; `categories detach ID --parent EXPECTED_PARENT_ID` | One level, same group, ordinary modifiable family; no targets, explicit policy settings, or account links |
 | Target removal                  | `targets remove CATEGORY_ID --budget BUDGET --dry-run`                                        | Complete positive SPENDING/MONTHLY target on a flat, active, modifiable ordinary category                 |
@@ -146,11 +147,11 @@ evidence. A replacement ID must not conceal an unresolved earlier outcome.
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Historical category funding     | Backend producer, preservation rules, past policy/adjustments, and completion signal; a zero residual does not certify correctness             |
 | Legacy financial fields         | Missing allocation flags, link-type fields, versions, and creators remain unknown; explicit null creator support does not clear reconciliation |
-| Allocation-aware category moves | Expense allocation history, reversal, index, and downstream funding contract                                                                   |
+| Allocation-aware category moves | Bounded monitored native category edits verified; CLI allocation guards and broader reversal workflows remain                                  |
 | Genuine account-link conflicts  | No repair or forced account reassignment; only the verified null representation is accepted                                                    |
-| Split changes                   | Complete sibling snapshot, group totals, indexes, native runtime parity, and conflict tests                                                    |
+| Split changes                   | Bounded two-member native group verified; CLI creation/editing, arbitrary groups, and conflict handling remain unsupported                     |
 | Noneditable refunds             | Ordinary native category handler retains the original record; no alternative reassignment contract established                                 |
-| Other category/group lifecycle  | Creation, cross-group moves, archive, ordering, subtrees, targeted or linked families, and aggregate/coverage settings                         |
+| Other category/group lifecycle  | Group creation, empty groups, cross-group moves, archive, ordering, subtrees, targeted or linked families, and aggregate/coverage settings     |
 | Other target workflows          | Savings, repeating, snoozed, hierarchical, incomplete, unknown-field, and non-native timestamp cases; broader removal subsets                  |
 | Broader reallocation            | Historical propagation, linked/targeted/hierarchical categories, sparse operands, large or trimmed indexes, and undo remain unsupported        |
 | Shared recovery                 | No payload-bound remote receipt or cross-device/crash proof after local-record loss                                                            |
@@ -160,13 +161,23 @@ a complete sibling or reconciliation persistence contract. Those existing CLI gu
 strip split IDs, clear reconciliation/editability flags, invent allocations, or repair carryover
 through unrelated savings or reallocation operations.
 
-## Category Creation Awaiting Lab Verification
+## Validated Category Creation
 
-[Ordinary Category Creation](category-creation.md) records the new worktree implementation and its
-retained native evidence. The deployed CLI envelope still requires disposable-lab validation before
-production use. It creates one ordinary category and an empty stash, with durable request binding
-and complete acknowledgment checks. Existing financial values remain untouched. Group creation,
+[Ordinary Category Creation](category-creation.md) records native and deployed CLI evidence. The
+command creates one ordinary category and an empty stash, with durable request binding and complete
+acknowledgment checks. Complete lab comparisons preserved existing financial values. Group creation,
 empty groups, hierarchy, and other lifecycle operations remain outside this subset.
+
+## Monitored Native Category Edits
+
+[Native Category And Split Edits](native-category-edits.md) records bounded disposable-lab evidence.
+An allocation-capable generic-account expense retained its existing funding and history during a
+category-only edit. A two-member split retained both identities, amounts, and its shared split ID.
+Both saves preserved account money and explicit financial flags and links.
+
+These findings support matching individually monitored native actions under explicit user
+authorization. They do not enable CLI execution through existing historical, allocation, or split
+guards.
 
 An imported positive card refund with explicit editable:true differs from a native immutable refund.
 The existing CLI category-update path preserves its sign and editability. A focused regression

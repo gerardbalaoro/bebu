@@ -1,7 +1,7 @@
 # Ordinary Category Creation
 
-The worktree implements `categories create` from retained native creation evidence. Deployed CLI
-creation still needs disposable-lab verification before production use.
+`categories create` supports the bounded subset below. Native creation evidence and deployed CLI
+experiments establish its constructor, write envelope, and preservation of existing records.
 
 Supply an explicit budget, group, name, icon, and color. Use `categories list --full` to find
 existing icon and color codes. Preview with `--dry-run --full`.
@@ -63,6 +63,12 @@ eligibility, name/style checks, identity collisions, and CLI flags. They also co
 dependencies, lost responses, incomplete acknowledgments, request binding, and observe-only
 recovery.
 
-The retained native saves establish the creation contract. They do not prove deployed acceptance of
-the new CLI envelope. A disposable-lab CLI creation and complete document/acknowledgment comparison
-remain required. Browser and main-checkout ownership must be handed off before that experiment.
+Two deployed CLI creations in the disposable budget appended orders 8 and 9. Each comparison checked
+every existing document, including all six saved months and twelve canonical transactions. Each
+creation added only its category entry and empty stash. Existing raw document fields remained
+unchanged outside the category index.
+
+The second experiment retained the exact submitted body and original REST acknowledgment. All three
+write results matched the category index, new stash, and marker envelope. The first experiment
+retained its validated commit result and permanent operation record. Neither request was replayed.
+These experiments establish the documented subset, not broader category or group lifecycle support.
