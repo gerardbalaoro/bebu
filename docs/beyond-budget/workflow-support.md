@@ -181,6 +181,10 @@ An allocation-capable generic-account expense retained its existing funding and 
 category-only edit. A two-member split retained both identities, amounts, and its shared split ID.
 Both saves preserved account money and explicit financial flags and links.
 
+[Native Bulk Category Edit Readiness](native-bulk-category-edits.md) records the retained
+copy/update path and the legitimate fixtures still required for missing fields, reconciliation, and
+link conflicts. Bulk selection alone does not establish preservation of raw legacy representations.
+
 These findings support matching individually monitored native actions under explicit user
 authorization. They do not enable CLI execution through existing historical, allocation, or split
 guards.
