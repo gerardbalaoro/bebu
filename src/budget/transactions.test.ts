@@ -1,5 +1,6 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
@@ -19,6 +20,15 @@ import { categoryFunding } from "./funding.ts";
 import { TransactionCreateSchema } from "./transaction-model.ts";
 import type { TransactionCreate, TransactionPatch } from "./transaction-model.ts";
 import { TransactionService } from "./transactions.ts";
+
+const OperationHome = await mkdtemp(nodePath.join(tmpdir(), "bebu-transaction-suite-"));
+
+afterAll(async () => {
+  await rm(OperationHome, { force: true, recursive: true });
+});
+
+const isolatedService = (client: BeyondClient) =>
+  new TransactionService(client, { home: nodePath.join(OperationHome, randomUUID()) });
 
 const budgetPath = "projects/beyond-budget/databases/(default)/documents/budgets/testBudget";
 const transactionId = "AbCdEfGhIjKlMnOpQrSt";
@@ -225,7 +235,7 @@ const fixture = () => {
 
   const client = new BeyondClient(structuredClone(session), { fetcher });
 
-  return { calls, client, documents, fetcher, service: new TransactionService(client) };
+  return { calls, client, documents, fetcher, service: isolatedService(client) };
 };
 
 const writesFrom = (result: CommitResult): Write[] => {
@@ -442,7 +452,7 @@ test("legacy history pages retain missing values and continue past malformed rec
     },
   });
 
-  const service = new TransactionService(client);
+  const service = isolatedService(client);
   const first = await service.list({ limit: 2 });
   expect(first.transactions).toEqual([legacy]);
   expect(first).toMatchObject({
@@ -507,7 +517,7 @@ test("account history retains legacy records and identifies malformed query resu
     },
   });
 
-  const result = await new TransactionService(client).list({ accountId: "card", limit: 1000 });
+  const result = await isolatedService(client).list({ accountId: "card", limit: 1000 });
   expect(result.transactions).toEqual([legacy]);
   expect(result).toMatchObject({
     diagnostics: [{ transactionId }, { transactionId: "broken" }],
@@ -550,7 +560,7 @@ test("an unsupported Firestore value retains its wire record without concealing 
       ),
   });
 
-  const result = await new TransactionService(client).list();
+  const result = await isolatedService(client).list();
   expect(result.transactions.map((record) => record.id)).toEqual([transactionId]);
   expect(result).toMatchObject({
     diagnostics: [
@@ -691,7 +701,7 @@ test("legacy history and supported writes preserve an explicitly unknown creator
     },
   });
 
-  const service = new TransactionService(client);
+  const service = isolatedService(client);
   const history = await service.list();
   expect(history.transactions).toEqual([record]);
   expect(history.invalidRecords).toEqual([]);
@@ -1267,7 +1277,7 @@ test("canonical history includes upcoming records whose budget period has not be
     },
   });
 
-  const result = await new TransactionService(client).list({
+  const result = await isolatedService(client).list({
     limit: 10,
     pageToken: "previous-page",
   });
@@ -1324,7 +1334,7 @@ test("account history queries both target directions without an unavailable comp
     },
   });
 
-  const result = await new TransactionService(client).list({ accountId: "card", limit: 1 });
+  const result = await isolatedService(client).list({ accountId: "card", limit: 1 });
   expect(result.transactions.map((transaction) => transaction.id)).toEqual(["newer"]);
   expect(result).toMatchObject({ matched: 2, scanLimitReached: false, source: "canonical-query" });
   expect(query).toEqual({
@@ -3410,7 +3420,7 @@ test("recurring creation commits one canonical entry, its obligations and indexe
     });
   };
 
-  const service = new TransactionService(
+  const service = isolatedService(
     new BeyondClient(structuredClone(session), { fetcher: boundary })
   );
 
@@ -3564,4 +3574,84 @@ test("completed single-payment recurrence still requires its historical budget p
     /period/u
   );
   expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("an explicitly editable imported card refund can move category without changing debt or its flags", async () => {
+  const { service, documents } = fixture();
+  const refund = { ...canonicalTransaction, amount: 400, subType: "REFUND" };
+  documents.set(`${budgetPath}/transactions/${transactionId}`, refund);
+  const categories = documents.get(`${budgetPath}/stashes/categoriesIndex`);
+  assert.ok(categories);
+
+  const categoryData = z
+    .object({
+      data: z.object({ categories: z.record(z.string(), z.record(z.string(), z.unknown())) }),
+    })
+    .parse(categories);
+
+  categoryData.data.categories.destination = {
+    id: "destination",
+    linkedAccountIds: [],
+    transactionCount: 0,
+    type: "DEFAULT",
+  };
+  documents.set(`${budgetPath}/stashes/categoriesIndex`, categoryData);
+  documents.set(`${budgetPath}/stashes/destination`, {
+    data: { completedTransactionCount: 0, completedTransactions: {}, historicalSpending: {} },
+  });
+  documents.set(`${budgetPath}/periods/periodOne`, {
+    balances: {
+      cardCategory: { otherAmount: -400 },
+      destination: { allocatedAmount: 0, spentAmount: 0 },
+      spend: { allocatedAmount: 50_000, spentAmount: -400 },
+    },
+  });
+
+  const result = await service.update(
+    transactionId,
+    { categoryId: "destination" },
+    { dryRun: true }
+  );
+
+  assert.ok(result.summary);
+
+  expect(result.summary.transaction.after).toMatchObject({
+    amount: 400,
+    editable: true,
+    subType: "REFUND",
+    targetFrom: refund.targetFrom,
+    targetTo: { id: "destination" },
+  });
+  expect(result.summary.accounts).toEqual([]);
+  expect(result.summary.categories.find((category) => category.id === "spend")).toMatchObject({
+    after: { availableAmount: 50_000 },
+    before: { availableAmount: 50_400 },
+  });
+  expect(result.summary.categories.find((category) => category.id === "destination")).toMatchObject(
+    { after: { availableAmount: 400 }, before: { availableAmount: 0 } }
+  );
+  const writes = writesFrom(result);
+  expect(writeAt(writes, "stashes/spend").updateTransforms).toContainEqual({
+    fieldPath: "data.historicalSpending.`2026-10`",
+    increment: { integerValue: "400" },
+  });
+  expect(writeAt(writes, "stashes/destination").updateTransforms).toContainEqual({
+    fieldPath: "data.historicalSpending.`2026-10`",
+    increment: { integerValue: "-400" },
+  });
+  const canonical = writeAt(writes, `transactions/${transactionId}`);
+  expect(canonical.updateMask?.fieldPaths).toEqual(["targetTo"]);
+  expect(canonical.update?.fields).not.toHaveProperty("editable");
+  expect(canonical.update?.fields).not.toHaveProperty("autoAllocateIfCapable");
+  expect(canonical.update?.fields).not.toHaveProperty("autoAllocateIfIncome");
+  expect(documents.get(`${budgetPath}/transactions/${transactionId}`)).toEqual(refund);
+
+  const budget = documents.get(budgetPath);
+  assert.ok(budget);
+  budget.availablePeriods = { "2026-10": { id: "periodOne" }, "2026-11": { id: "periodTwo" } };
+  documents.set(`${budgetPath}/periods/periodTwo`, { balances: {} });
+  await assert.rejects(
+    service.update(transactionId, { categoryId: "destination" }),
+    /verified downstream carryover/u
+  );
 });
