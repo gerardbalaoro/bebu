@@ -21,10 +21,12 @@ import { allocationHistory } from "../budget/allocation-history.ts";
 import { allocationReport } from "../budget/allocation-report.ts";
 import { previewSmartAllocation, previewTargetAllocation } from "../budget/auto-allocation.ts";
 import { categoryCarryover } from "../budget/carryover.ts";
+import { StructureService } from "../budget/category-structure.ts";
 import { budgetDiagnostics } from "../budget/diagnostics.ts";
 import { categoryFunding } from "../budget/funding.ts";
 import { LabelsSchema } from "../budget/labels.ts";
 import { CategoriesSchema } from "../budget/model.ts";
+import { removeCategoryTarget } from "../budget/target-removal.ts";
 import { categoryTargets } from "../budget/targets.ts";
 import { HistoricalTransactionError } from "../budget/transaction-carryover.ts";
 import {
@@ -33,6 +35,7 @@ import {
   TransactionDeleteScopeSchema,
   TransactionDeleteSchema,
 } from "../budget/transaction-model.ts";
+import { TransactionOperationError } from "../budget/transaction-operations.ts";
 import { TransactionService } from "../budget/transactions.ts";
 import { BeyondClient } from "../firestore/client.ts";
 import type { CommitOptions, CommitResult, Data } from "../firestore/encoding.ts";
@@ -69,7 +72,7 @@ const historicalCarryoverSection = {
 
 const requestFlag = defineFlag("request-id", {
   description:
-    "Identify one operation with 20 letters or digits. Reuse only for an identical retry",
+    "Identify an operation with 20 letters or digits. Inspect existing requests before retrying",
   type: "string",
 });
 
@@ -97,7 +100,10 @@ const writeOptions = (flags: { "dry-run"?: boolean; "request-id"?: string }): Co
   requestId: flags["request-id"],
 });
 
-const writeResult = (result: CommitResult, full?: boolean) => {
+const writeResult = (
+  result: CommitResult | { changed: boolean; committed: boolean },
+  full?: boolean
+) => {
   if (!("dryRun" in result) || full === true) {
     return result;
   }
@@ -119,6 +125,7 @@ const errorOutput = defineExtension(defineExtensionId("bebu.error-output")).onEr
     if (
       error instanceof AllocationExecutionError ||
       error instanceof FirestoreCommitError ||
+      error instanceof TransactionOperationError ||
       error instanceof HistoricalTransactionError
     ) {
       stderr(JSON.stringify({ ...error.result, error: error.message }));
@@ -214,11 +221,95 @@ const accountsCommand = defineCommand(
       )
 );
 
+const transactionRecoveryCommand = (action: "operation" | "recover") =>
+  defineCommand(
+    action,
+    {
+      description:
+        action === "operation"
+          ? "Inspect a durable local transaction operation"
+          : "Observe a saved transaction request without resending financial writes",
+      sections: [
+        {
+          body: "Use the original 20-character request ID and explicit budget. Keep BEBU_HOME and its permanent operation records. Recovery observes the saved marker and bounded current document versions; it never resends. A marker alone does not bind a payload or prove an unknown commit. Missing or corrupt local records remain unresolved. A known rejected attempt needs a fresh reviewed preview and a new request ID; unknown or sending attempts require observation.",
+          title: "Recovery boundary",
+        },
+      ],
+    },
+    (leaf) =>
+      leaf
+        .flags(...readFlags)
+        .args(
+          defineArg("request-id", {
+            description: "Original durable transaction request ID",
+            required: true,
+            type: "string",
+          })
+        )
+        .action(async ({ args, flags, stdout }) => {
+          const service = new TransactionService(
+            new BeyondClient(await loadSession(), { budget: flags.budget })
+          );
+
+          const result =
+            action === "operation"
+              ? await service.operation(args["request-id"])
+              : await service.recover(args["request-id"]);
+
+          print(stdout, result, flags.compact);
+        })
+  );
+
+const renameCommand = (kind: "category" | "group") =>
+  defineCommand(
+    "rename",
+    {
+      description: `Rename one ${kind} without changing financial or hierarchy fields`,
+      sections: [
+        {
+          body: "Supports active DEFAULT records with explicit modifiable:true and matching stored identities. The name is trimmed and must contain 1–200 characters; this is a CLI limit. Preview with --dry-run; add --full for the exact name-only patch. Reads and commit use one Firestore transaction with a version precondition. Archive, creation, hierarchy changes, targets, and financial settings are separate workflows. A save marker proves request existence only; inspect the current name after an uncertain outcome before another command.",
+          title: "Supported subset",
+        },
+      ],
+    },
+    (leaf) =>
+      leaf
+        .flags(
+          ...writeFlags,
+          defineFlag("name", {
+            description: "New name (1–200 characters)",
+            required: true,
+            type: "string",
+          })
+        )
+        .args(idArg)
+        .action(async ({ args, flags, stdout }) => {
+          const result = await new StructureService(await clientFor(flags.budget)).rename(
+            kind,
+            args.id,
+            flags.name,
+            writeOptions(flags)
+          );
+
+          if (flags.full === true || !("body" in result)) {
+            print(stdout, result, flags.compact);
+
+            return;
+          }
+
+          const { body, ...summary } = result;
+          void body;
+          print(stdout, summary, flags.compact);
+        })
+  );
+
 const transactionsCommand = defineCommand(
   "transactions",
   { description: "Read history and edit expenses, income, and upcoming recurring payments" },
   (command) =>
     command
+      .add(transactionRecoveryCommand("operation"))
+      .add(transactionRecoveryCommand("recover"))
       .add(
         defineCommand(
           "list",
@@ -676,47 +767,75 @@ const allocationsCommand = defineCommand(
 
 const targetsCommand = defineCommand(
   "targets",
-  { description: "Inspect stored category targets" },
+  { description: "Inspect targets and remove supported monthly spending targets" },
   (command) =>
-    command.add(
-      defineCommand(
-        "list",
-        {
-          description: "Read target settings separately from category funds",
-          sections: [
-            {
-              body: "Target settings remain raw, including unknown types and snooze settings. An optional month includes the stored balance. Availability is null when required balance fields are absent. Target progress is not calculated and must not be inferred from category availability.",
-              title: "Target progress",
-            },
-          ],
-        },
-        (leaf) =>
-          leaf
-            .flags(
-              ...readFlags,
+    command
+      .add(
+        defineCommand(
+          "remove",
+          {
+            description: "Remove a monthly spending target without changing stored funding",
+            sections: [
               {
-                description: "Include funds from an existing YYYY-MM budget month",
-                name: "month",
-                type: "string",
+                body: "Supports explicit positive SPENDING/MONTHLY targets on active DEFAULT categories with modifiable:true and no parent or children. Raw account links remain untouched and are not interpreted. Preview with --dry-run and an explicit budget. The complete target is deleted under a snapshot version precondition. Existing category funds, history, account money, and other settings are not directly changed. Future target demand and automatic funding suggestions intentionally change. Creation, edits, savings/repeating targets, and hierarchical categories require separate workflows.",
+                title: "Supported subset",
               },
-              {
-                description: "Return the target for this category ID",
-                name: "category",
-                type: "string",
-              }
-            )
-            .action(async ({ flags, stdout }) => {
-              print(
-                stdout,
-                await categoryTargets(await clientFor(flags.budget), {
-                  categoryId: flags.category,
-                  yearMonth: flags.month,
-                }),
-                flags.compact
-              );
-            })
+            ],
+          },
+          (leaf) =>
+            leaf
+              .flags(...writeFlags)
+              .args(idArg)
+              .action(async ({ args, flags, stdout }) => {
+                const result = await removeCategoryTarget(
+                  await clientFor(flags.budget),
+                  args.id,
+                  writeOptions(flags)
+                );
+
+                print(stdout, writeResult(result, flags.full), flags.compact);
+              })
+        )
       )
-    )
+      .add(
+        defineCommand(
+          "list",
+          {
+            description: "Read target settings separately from category funds",
+            sections: [
+              {
+                body: "Target settings remain raw, including unknown types and snooze settings. An optional month includes the stored balance. Availability is null when required balance fields are absent. Target progress is not calculated and must not be inferred from category availability.",
+                title: "Target progress",
+              },
+            ],
+          },
+          (leaf) =>
+            leaf
+              .flags(
+                ...readFlags,
+                {
+                  description: "Include funds from an existing YYYY-MM budget month",
+                  name: "month",
+                  type: "string",
+                },
+                {
+                  description: "Return the target for this category ID",
+                  name: "category",
+                  type: "string",
+                }
+              )
+              .action(async ({ flags, stdout }) => {
+                print(
+                  stdout,
+                  await categoryTargets(await clientFor(flags.budget), {
+                    categoryId: flags.category,
+                    yearMonth: flags.month,
+                  }),
+                  flags.compact
+                );
+              })
+        )
+      )
 );
 
 export const createApp = (): AnyCrust => {
@@ -732,12 +851,12 @@ export const createApp = (): AnyCrust => {
         title: "Browser session",
       },
       {
-        body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu creates one-off or recurring expenses, income, and card refunds (type REFUND with a positive amountMinor and expense categoryId). Use frequency, repeatCount, and nonWorkingDayPolicy to create a recurring series. Read transactions create --help for completion and period rules. Updates also support existing upcoming recurring payments. Recurring deletion requires an explicit --scope; read transactions delete --help and inspect its dry run. Transfers, splits, debts, files, reconciliation, and active linked allocation effects require separate flows. For manual allocations, use allocations set --dry-run followed by allocations apply with the saved plan and an explicit request ID. Card purchases can overspend a category; the full purchase amount changes spending and the payment reserve without allocating funds. Refunds reverse those effects. Historical dates are retained.\n\nTransaction updates accept amounts, accounts, categories, payees, tags, dates, cleared status, and metadata. Upcoming entries also accept recurrence rules. Read transactions update --help for scope and restrictions. The --request-id flag identifies the atomic commit and its save marker.\n\nFor an identical retry, reuse --request-id and the original payload. For a different operation, use a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves marker existence only. Marker expiry and validation before the commit also limit retries.",
+        body: "Before a change:\n1. Use schema to find the accepted JSON fields.\n2. Use --dry-run to inspect transaction amounts before and after the change. Add --full to inspect all writes.\n\nAmounts use integer minor units (PHP centavos). bebu creates one-off or recurring expenses, income, and card refunds (type REFUND with a positive amountMinor and expense categoryId). Use frequency, repeatCount, and nonWorkingDayPolicy to create a recurring series. Read transactions create --help for completion and period rules. Updates also support existing upcoming recurring payments. Recurring deletion requires an explicit --scope; read transactions delete --help and inspect its dry run. Transfers, splits, debts, files, reconciliation, and active linked allocation effects require separate flows. For manual allocations, use allocations set --dry-run followed by allocations apply with the saved plan and an explicit request ID. Card purchases can overspend a category; the full purchase amount changes spending and the payment reserve without allocating funds. Refunds reverse those effects. Historical dates are retained.\n\nTransaction updates accept amounts, accounts, categories, payees, tags, dates, cleared status, and metadata. Upcoming entries also accept recurrence rules. Read transactions update --help for scope and restrictions. The --request-id flag identifies the atomic commit and its save marker.\n\nTransaction commands permanently bind request IDs to actor, budget, action, and original input in local operation records. An existing request only observes; it never resends. Keep BEBU_HOME and its records. A new operation needs a new request ID. Native save markers do not bind payloads; old or cross-device requests lack this local recovery guarantee.",
         title: "Write rules",
       },
       historicalCarryoverSection,
       {
-        body: "Commit errors report requestId, outcome, conflict, marker, preconditions, and recovery. For outcome rejected with recovery refresh-preview, read the current state and run a fresh dry run. Review the new effects before retrying with the original payload and request ID. For create retries, preserve the resolved transaction ID, date, timezone, completion, and clearing fields.\n\nFor outcome unknown or recovery inspect-before-retry, inspect the transaction, affected documents, and save marker before any resend. An absent marker after a lost response does not establish rejection. The CLI never automatically retries a failed commit. Transaction commands have no durable recovery command.",
+        body: "Transaction commands save the original intent, exact compiled body, and outcome under BEBU_HOME before dispatch. Use transactions operation REQUEST_ID to inspect a local record and transactions recover REQUEST_ID to observe its marker and up to 50 current document versions. Recovery never resends, including rejected requests. Marker presence and current values do not establish an unknown commit outcome. Native error codes and preconditions remain in commitDiagnostic.\n\nAfter an authoritative rejection, read fresh state and review a new dry run before creating a new request ID. Preserve the intended transaction identity; for create, inspect the resolved ID and date in the saved submission rather than generating a replacement blindly. Sending or unknown outcomes require observation. Missing or corrupt local records and untracked old or cross-device requests remain unresolved; preserve existing data and do not blindly replay them.",
         title: "Commit recovery",
       },
     ],
@@ -756,9 +875,10 @@ export const createApp = (): AnyCrust => {
     .add(
       defineCommand(
         "categories",
-        { description: "Read expense and payment categories" },
+        { description: "Read categories and rename supported ordinary categories" },
         (command) =>
           command
+            .add(renameCommand("category"))
             .add(fundingCommand)
             .add(
               defineCommand(
@@ -823,6 +943,32 @@ export const createApp = (): AnyCrust => {
                 })
               )
             )
+      )
+    )
+    .add(
+      defineCommand(
+        "groups",
+        { description: "Read groups and rename supported ordinary groups" },
+        (command) =>
+          command.add(renameCommand("group")).add(
+            defineCommand(
+              "list",
+              { description: "List group IDs, names, and modification settings" },
+              (leaf) =>
+                leaf.flags(...readFlags).action(async ({ flags, stdout }) => {
+                  const rows = await new StructureService(await clientFor(flags.budget)).groups();
+                  print(
+                    stdout,
+                    flags.full === true
+                      ? rows
+                      : rows.map((row) =>
+                          pick(row, ["id", "name", "type", "modifiable", "archived", "deleted"])
+                        ),
+                    flags.compact
+                  );
+                })
+            )
+          )
       )
     )
     .add(

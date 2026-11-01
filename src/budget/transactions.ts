@@ -46,6 +46,7 @@ import type {
   TransactionDeleteOptions,
   TransactionPatch,
 } from "./transaction-model.ts";
+import { TransactionOperations } from "./transaction-operations.ts";
 import { createSchedule } from "./transaction-schedule.ts";
 import { transactionDetails, transactionSummary } from "./transaction-summary.ts";
 import { makeTarget } from "./transaction-target.ts";
@@ -233,8 +234,17 @@ const validateAmount = (amount: number): void => {
 export class TransactionService {
   readonly client: BeyondClient;
 
-  constructor(client: BeyondClient) {
+  private readonly operations: TransactionOperations;
+
+  constructor(client: BeyondClient, options: { home?: string } = {}) {
     this.client = client;
+    this.operations = new TransactionOperations(client, options);
+  }
+  async operation(requestId: string) {
+    return await this.operations.operation(requestId);
+  }
+  async recover(requestId: string) {
+    return await this.operations.recover(requestId);
   }
   private async commit<Summary extends ReturnType<typeof transactionSummary>>(
     plan: MutationPlan,
@@ -249,7 +259,7 @@ export class TransactionService {
     }
 
     return {
-      ...(await this.client.commit(plan.writes(), options, plan.snapshot)),
+      ...(await this.operations.commit(plan.writes(), options, plan.snapshot)),
       executionSupported: downstreamCarryover === null,
       summary: options.dryRun === true ? { ...summary, downstreamCarryover } : undefined,
     };
@@ -288,6 +298,15 @@ export class TransactionService {
     return await this.client.document(`${this.client.budgetPath}/transactions/${id}`);
   }
   async create(value: TransactionCreate, options: CommitOptions = {}) {
+    const input = TransactionCreateSchema.parse(value);
+
+    return await this.operations.run(
+      { action: "create", input },
+      options,
+      async (bound) => await this.createUntracked(input, bound)
+    );
+  }
+  private async createUntracked(value: TransactionCreate, options: CommitOptions) {
     const input = TransactionCreateSchema.parse(value);
     validateAmount(input.amountMinor);
     const context = await this.context();
@@ -578,6 +597,15 @@ export class TransactionService {
     }
   }
   async delete(id: string, options: TransactionDeleteOptions = {}) {
+    const input = TransactionDeleteSchema.parse(options);
+
+    return await this.operations.run(
+      { action: "delete", input, transactionId: requireId(id) },
+      options,
+      async (bound) => await this.deleteUntracked(id, { ...options, ...bound })
+    );
+  }
+  private async deleteUntracked(id: string, options: TransactionDeleteOptions) {
     const { scope } = TransactionDeleteSchema.parse(options);
 
     if (scope !== undefined) {
@@ -685,6 +713,15 @@ export class TransactionService {
     }
   }
   async update(id: string, input: TransactionPatch, options: CommitOptions = {}) {
+    const changes = TransactionPatchSchema.parse(input);
+
+    return await this.operations.run(
+      { action: "update", input: changes, transactionId: requireId(id) },
+      options,
+      async (bound) => await this.updateUntracked(id, changes, bound)
+    );
+  }
+  private async updateUntracked(id: string, input: TransactionPatch, options: CommitOptions) {
     const changes = TransactionPatchSchema.parse(input);
     const context = await this.context();
     const plan = new MutationPlan(this.client);

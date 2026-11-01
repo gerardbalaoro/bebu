@@ -67,7 +67,8 @@ export const transactionPreview = (transaction: Transaction): Data => {
 
   const result = Object.fromEntries(keys.map((k) => [k, transaction[k] ?? null]));
   result.dueAt = new Date(transaction.dueAt);
-  result.createdByUserId = transaction.createdBy.uid;
+  // Native 49253 preserves an unknown creator as a null preview user ID.
+  result.createdByUserId = transaction.createdBy?.uid ?? null;
   result.targetFromId = transaction.targetFrom?.id ?? null;
   result.targetToId = transaction.targetTo?.id ?? null;
   result.payeeId = transaction.payee?.id ?? null;

@@ -4,6 +4,9 @@ This guide helps maintainers extend BeBu from the native app's behavior. The CLI
 calculations. Generated skills select commands and interpret results without calculating missing
 amounts.
 
+[Native Workflow Support](workflow-support.md) records enabled operations, native evidence, durable
+recovery, and remaining financial support boundaries.
+
 ## Current Support
 
 | Need                                                     | Command                                        |
@@ -117,8 +120,9 @@ Reallocation is a separate transaction flow, not two manual allocations. History
 undo an allocation. A surplus forecast does not prove that money was allocated.
 
 Native save markers prove existence only. Manual allocation binds a request to a durable local
-operation record and never automatically resends uncertain work. Existing transaction-command
-retries still depend on marker expiry and validation before commit.
+operation record and never automatically resends uncertain work. Transaction commands bind live
+requests to permanent local operation records. Recovery observes markers and current versions
+without resending; unknown outcomes remain unresolved without stronger evidence.
 
 ## Validate New Writes
 

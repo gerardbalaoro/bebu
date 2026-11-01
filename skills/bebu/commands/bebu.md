@@ -58,9 +58,10 @@ Transaction updates accept amounts, accounts, categories, payees, tags, dates, c
 metadata. Upcoming entries also accept recurrence rules. Read transactions update --help for scope
 and restrictions. The --request-id flag identifies the atomic commit and its save marker.
 
-For an identical retry, reuse --request-id and the original payload. For a different operation, use
-a new request ID. Save markers do not bind the ID to a payload. An alreadyCommitted result proves
-marker existence only. Marker expiry and validation before the commit also limit retries.
+Transaction commands permanently bind request IDs to actor, budget, action, and original input in
+local operation records. An existing request only observes; it never resends. Keep BEBU_HOME and its
+records. A new operation needs a new request ID. Native save markers do not bind payloads; old or
+cross-device requests lack this local recovery guarantee.
 
 ## Historical carryover guard
 
@@ -77,15 +78,17 @@ remain subject to their usual guards.
 
 ## Commit recovery
 
-Commit errors report requestId, outcome, conflict, marker, preconditions, and recovery. For outcome
-rejected with recovery refresh-preview, read the current state and run a fresh dry run. Review the
-new effects before retrying with the original payload and request ID. For create retries, preserve
-the resolved transaction ID, date, timezone, completion, and clearing fields.
+Transaction commands save the original intent, exact compiled body, and outcome under BEBU_HOME
+before dispatch. Use transactions operation REQUEST_ID to inspect a local record and transactions
+recover REQUEST_ID to observe its marker and up to 50 current document versions. Recovery never
+resends, including rejected requests. Marker presence and current values do not establish an unknown
+commit outcome. Native error codes and preconditions remain in commitDiagnostic.
 
-For outcome unknown or recovery inspect-before-retry, inspect the transaction, affected documents,
-and save marker before any resend. An absent marker after a lost response does not establish
-rejection. The CLI never automatically retries a failed commit. Transaction commands have no durable
-recovery command.
+After an authoritative rejection, read fresh state and review a new dry run before creating a new
+request ID. Preserve the intended transaction identity; for create, inspect the resolved ID and date
+in the saved submission rather than generating a replacement blindly. Sending or unknown outcomes
+require observation. Missing or corrupt local records and untracked old or cross-device requests
+remain unresolved; preserve existing data and do not blindly replay them.
 
 ## Subcommands
 
@@ -94,13 +97,14 @@ recovery command.
   target funding
 - [`auth`](auth.md) - Sign in through your browser and manage the saved connection
 - [`budget`](budget.md) - Read budget diagnostics
-- [`categories`](categories.md) - Read expense and payment categories
+- [`categories`](categories.md) - Read categories and rename supported ordinary categories
+- [`groups`](groups.md) - Read groups and rename supported ordinary groups
 - [`payees`](payees.md) - Read payees
 - [`schema`](schema.md) - Show JSON schemas for write payloads
 - [`session`](session.md) - Import authentication from a signed-in browser
 - [`skills`](skills.md) - Generate or install the bebu agent skill
 - [`tags`](tags.md) - Read tags
-- [`targets`](targets.md) - Inspect stored category targets
+- [`targets`](targets.md) - Inspect targets and remove supported monthly spending targets
 - [`transactions`](transactions.md) - Read history and edit expenses, income, and upcoming recurring
   payments
 

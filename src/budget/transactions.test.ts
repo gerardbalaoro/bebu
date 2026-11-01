@@ -667,7 +667,7 @@ test("individual legacy transaction reads preserve omissions without changing wr
   expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 
-test("legacy history preserves an explicitly unknown creator while writes stay strict", async () => {
+test("legacy history and supported writes preserve an explicitly unknown creator", async () => {
   const record = { ...canonicalTransaction, createdBy: null };
   const { fetcher, documents } = fixture();
   documents.set(`${budgetPath}/transactions/${transactionId}`, record);
@@ -695,12 +695,21 @@ test("legacy history preserves an explicitly unknown creator while writes stay s
   const history = await service.list();
   expect(history.transactions).toEqual([record]);
   expect(history.invalidRecords).toEqual([]);
-  expect(history.diagnostics).toMatchObject([{ issues: [{ path: ["createdBy"] }], transactionId }]);
-  await assert.rejects(
-    service.update(transactionId, { notes: "reviewed" }, { dryRun: true }),
-    /createdBy/u
+  expect(history.diagnostics).toEqual([]);
+  const updated = await service.update(transactionId, { notes: "reviewed" }, { dryRun: true });
+
+  const canonical = writesFrom(updated).find(
+    (write) => write.update?.name === `${budgetPath}/transactions/${transactionId}`
   );
-  await assert.rejects(service.delete(transactionId, { dryRun: true }), /createdBy/u);
+
+  expect(canonical?.updateMask?.fieldPaths).toEqual(["notes"]);
+  const deleted = await service.delete(transactionId, { dryRun: true });
+  expect(
+    writesFrom(deleted).some(
+      (write) => write.delete === `${budgetPath}/transactions/${transactionId}`
+    )
+  ).toBe(true);
+  expect(documents.get(`${budgetPath}/transactions/${transactionId}`)?.createdBy).toBeNull();
 });
 
 test.each(["conflict", "lost-response"])(
@@ -708,6 +717,8 @@ test.each(["conflict", "lost-response"])(
   async (failure) => {
     const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-conflict-cli-"));
     const previous = process.env.BEBU_SESSION_FILE;
+    const previousHome = process.env.BEBU_HOME;
+    process.env.BEBU_HOME = directory;
     const { fetcher, documents } = fixture();
     const original = structuredClone(documents);
     let commits = 0;
@@ -774,7 +785,7 @@ test.each(["conflict", "lost-response"])(
         conflict: failure === "conflict",
         marker: "absent",
         outcome: failure === "conflict" ? "rejected" : "unknown",
-        recovery: failure === "conflict" ? "refresh-preview" : "inspect-before-retry",
+        recovery: "observe-only",
         requestId,
       });
       expect(diagnostic.error.length).toBeGreaterThan(0);
@@ -786,6 +797,12 @@ test.each(["conflict", "lost-response"])(
       expect(documents).toEqual(original);
     } finally {
       fetchMock.mockRestore();
+
+      if (previousHome === undefined) {
+        delete process.env.BEBU_HOME;
+      } else {
+        process.env.BEBU_HOME = previousHome;
+      }
 
       if (previous === undefined) {
         delete process.env.BEBU_SESSION_FILE;
@@ -1729,7 +1746,7 @@ test("CLI funding, diagnostics, and compact dry runs expose semantic results wit
       "--file",
       payload,
       "--request-id",
-      "historical-change",
+      "HistoricalChange0001",
       "--compact",
     ]);
 
@@ -1737,7 +1754,7 @@ test("CLI funding, diagnostics, and compact dry runs expose semantic results wit
     expect(JSON.parse(blocked.stderr)).toMatchObject({
       downstreamCarryover: { executionSupported: false, laterMonths: ["2026-11"] },
       executionSupported: false,
-      requestId: "historical-change",
+      requestId: "HistoricalChange0001",
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   } finally {
@@ -3402,6 +3419,10 @@ test("recurring creation commits one canonical entry, its obligations and indexe
 
   const result = await service.create(input, { requestId: transactionId });
   expect(result).toMatchObject({ committed: true, transactionId });
+  expect(requests).toHaveLength(1);
+  const operation = await service.operation(transactionId);
+  await assert.rejects(service.create(input, { requestId: transactionId }), /recovery/u);
+  expect(await service.operation(transactionId)).toEqual(operation);
   expect(requests).toHaveLength(1);
 
   const body = z

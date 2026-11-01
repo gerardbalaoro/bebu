@@ -48,10 +48,33 @@ const requireLedgerTargets = (transaction: Transaction, context: TransactionCont
 
   const current = makeTarget(account.id, "account", context.accountMap, context.categoryMap);
 
+  const linkedCategory =
+    account.linkedObjectId === null ? undefined : context.categoryMap[account.linkedObjectId];
+
+  // Native 51758 uses the saved card type and link ID for reserves, without link type.
+  // Explicit version:null also prevents linked allocation through 51847 → 51849.
+  const preservesLegacyCardLink =
+    transaction.type === "OUTFLOW" &&
+    transaction.version === null &&
+    account.type === "CREDIT_CARD" &&
+    current.type === "CREDIT_CARD" &&
+    context.accountMap[account.id]?.id === account.id &&
+    account.linkedObjectType === null &&
+    current.linkedObjectType === "CATEGORY" &&
+    account.linkedObjectId !== null &&
+    account.linkedObjectId !== "" &&
+    current.linkedObjectId === account.linkedObjectId &&
+    context.accountMap[account.id]?.linkedCategoryId === account.linkedObjectId &&
+    linkedCategory?.id === account.linkedObjectId &&
+    linkedCategory.type === "CREDIT_CARD_PAYMENT" &&
+    linkedCategory.archived !== true &&
+    linkedCategory.deleted !== true &&
+    linkedCategory.linkedAccountIds.includes(account.id);
+
   if (
     current.type !== account.type ||
     current.linkedObjectId !== account.linkedObjectId ||
-    current.linkedObjectType !== account.linkedObjectType
+    (current.linkedObjectType !== account.linkedObjectType && !preservesLegacyCardLink)
   ) {
     throw new Error(
       "The saved transaction and current account links disagree. Resolve them in the app"

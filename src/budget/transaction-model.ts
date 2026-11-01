@@ -33,12 +33,14 @@ export const TransactionSchema = z.looseObject({
   color: z.string(),
   completed: z.boolean(),
   createdAt: z.string(),
-  createdBy: z.object({
-    displayName: z.string(),
-    email: z.string().nullable(),
-    photoUrl: z.string(),
-    uid: z.string(),
-  }),
+  createdBy: z
+    .object({
+      displayName: z.string(),
+      email: z.string().nullable(),
+      photoUrl: z.string(),
+      uid: z.string(),
+    })
+    .nullable(),
   dueAt: z.string(),
   editable: z.boolean(),
   eventId: z.string().nullable(),
@@ -83,7 +85,7 @@ export type Transaction = z.infer<typeof TransactionSchema>;
 const HistoryTargetSchema = TargetSchema.partial().loose();
 
 const HistoryTransactionSchema = TransactionSchema.partial().extend({
-  createdBy: TransactionSchema.shape.createdBy.partial().loose().nullish(),
+  createdBy: TransactionSchema.shape.createdBy.unwrap().partial().loose().nullish(),
   extraTarget: HistoryTargetSchema.nullable().optional(),
   occurrenceChange: z
     .looseObject({

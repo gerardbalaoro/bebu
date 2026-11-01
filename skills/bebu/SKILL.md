@@ -42,6 +42,16 @@ For account/category links or allocation settings, use budget diagnostics. Repor
 values with their document paths. Unknown values and absent settings have no inferred meaning or
 default.
 
+## Category and group names
+
+Use categories rename ID --name NAME or groups rename ID --name NAME with an explicit budget and
+--dry-run. Use groups list to find group IDs. Add --full to inspect the exact name-only patch. The
+supported subset is active DEFAULT records with explicit modifiable:true and matching identities.
+Names use a CLI limit of 1–200 trimmed characters. A rename preserves financial, hierarchy, target,
+and unknown fields. After an uncertain rename outcome, inspect the current name before another
+command. Creation, hierarchy changes, detach, archive, and target creation/editing remain separate
+unsupported workflows.
+
 ## Transaction history
 
 Legacy transaction reads preserve absent fields without defaults. Inspect diagnostics and
@@ -52,7 +62,12 @@ Without an account filter, follow nextPageToken until null, even when transactio
 Account-filtered queries have no pagination. matched includes malformed records; scanLimitReached
 reports the 10,000-record scan boundary. Missing allocation or link fields remain unknown and block
 writes through strict validation. transactions show also preserves absent legacy fields and explicit
-null creators without adding write defaults.
+null creators without adding write defaults. Explicit createdBy:null is native-supported and remains
+null in canonical records and creator IDs in new index previews. Absent creator, allocation,
+link-type, and version fields still fail strict write validation. A narrow legacy card
+representation permits explicit null link type and version only with matching saved/current
+payment-category links. This preserves saved targets and does not repair links. All other
+allocation, split, editability, and historical funding guards remain.
 
 ## Allocation requests
 
@@ -67,7 +82,16 @@ and cannot save allocations.
 
 For allocation records, use allocations history. For category and nature totals, use allocations
 report. For positive historical averages, use allocations averages with an explicit reference month.
-For raw target settings, use targets list. Category availability is not target progress.
+For raw target settings, use targets list. Category availability is not target progress. For
+removing an existing ordinary monthly spending target, use targets remove CATEGORY_ID with an
+explicit budget and --dry-run. The subset requires a flat active DEFAULT category with
+modifiable:true and a complete known target shape. Repeat intervals, savings targets, snooze
+schedules, and hierarchy remain guarded. Raw account links remain untouched and uninterpreted;
+native target removal does not consume them. Removal deletes the whole target under its snapshot
+version. Stored account money, category funding, and history are not directly changed. Future target
+demand and automatic funding suggestions intentionally change. Preview the complete previous target
+before submitting. Target creation and editing remain unsupported; removing a target does not repair
+funding or a carryover discrepancy.
 
 For one manual allocation, use allocations set --dry-run with --amount-minor or --match-linked. The
 CLI calculates the complete pool, availability, linked-account diagnostics, and native history
@@ -150,66 +174,74 @@ supported edits or deletion. Updates preserve recurring clone links and never re
 occurrence. Notes, color, sentiment, location, and reminder metadata remain editable within the
 command's other restrictions. Do not remove allocation flags or history to bypass a rejection.
 
-For an identical retry, reuse the request ID and original payload. For a different operation, use a
-new request ID. For create retries, preserve the resolved id, dueAt, timezone, completed, and
-cleared fields.
-
-Commit errors report requestId, outcome, conflict, marker, preconditions, and recovery. For outcome
-rejected with recovery refresh-preview, read the current state and run a fresh dry run. Review the
-new effects before an identical retry with the original payload and request ID. For outcome unknown
-or recovery inspect-before-retry, inspect the transaction, affected documents, and save marker
-before any resend. An absent marker after a lost response does not establish rejection. The CLI
-never automatically retries a failed commit.
-
-For transaction commands, save markers do not bind request IDs to payloads. An alreadyCommitted
-result proves marker existence only. A retry can fail before marker lookup, including after
-deletion. After marker expiry, duplicate detection is not guaranteed.
+Transaction commands permanently bind each live request to actor, budget, action, transaction, and
+original input in BEBU_HOME. They save the exact compiled commit body before dispatch. Keep these
+permanent operation records. For inspection, use transactions operation REQUEST_ID with an explicit
+budget. For marker and current-version observations, use transactions recover REQUEST_ID with the
+same budget. Both matching retries and recovery only observe; they never resend, including requests
+previously rejected. Recovery checks at most 50 submitted document versions and reports the
+remaining count. These reads are not one snapshot. Marker presence and current values do not
+establish an unknown outcome; native markers contain no payload hash. Commit errors retain native
+error codes and preconditions in commitDiagnostic alongside local operation status. After an
+authoritative rejection, review fresh state and a new dry run before using a new request ID. For
+create, preserve the resolved transaction identity and date from the saved submission; inspect
+before creating any replacement. For sending or unknown outcomes, keep the request identity and
+observe. Do not send a replacement to work around uncertainty. Missing or corrupt local records, old
+untracked requests, and other installations lack the durable binding guarantee. Local record loss
+and marker expiry do not authorize replay.
 
 ## Command reference
 
-| Command                      | Type     | Description                                                                                 | Documentation                                                          |
-| ---------------------------- | -------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `bebu`                       | group    | A command-line tool for Beyond Budget accounts and transactions.                            | [commands/bebu.md](commands/bebu.md)                                   |
-| `bebu accounts`              | group    | Read accounts and change their configuration                                                | [commands/accounts.md](commands/accounts.md)                           |
-| `bebu accounts list`         | runnable | List account IDs and balances in integer minor units                                        | [commands/accounts/list.md](commands/accounts/list.md)                 |
-| `bebu accounts show`         | runnable | Read a complete account record                                                              | [commands/accounts/show.md](commands/accounts/show.md)                 |
-| `bebu accounts update`       | runnable | Change the account configuration. Use schema for the accepted JSON fields                   | [commands/accounts/update.md](commands/accounts/update.md)             |
-| `bebu allocations`           | group    | Plan and save manual allocations, inspect history, or preview target funding                | [commands/allocations.md](commands/allocations.md)                     |
-| `bebu allocations apply`     | runnable | Apply one reviewed manual allocation plan atomically                                        | [commands/allocations/apply.md](commands/allocations/apply.md)         |
-| `bebu allocations averages`  | runnable | Read average allocation and spending from prior saved months                                | [commands/allocations/averages.md](commands/allocations/averages.md)   |
-| `bebu allocations history`   | runnable | Read native allocation history, optionally with matching transactions                       | [commands/allocations/history.md](commands/allocations/history.md)     |
-| `bebu allocations operation` | runnable | Inspect the original local allocation operation without sending writes                      | [commands/allocations/operation.md](commands/allocations/operation.md) |
-| `bebu allocations preview`   | runnable | Calculate target or restricted smart funding without changing the budget                    | [commands/allocations/preview.md](commands/allocations/preview.md)     |
-| `bebu allocations recover`   | runnable | Observe the original allocation marker without resending uncertain work                     | [commands/allocations/recover.md](commands/allocations/recover.md)     |
-| `bebu allocations report`    | runnable | Summarize monthly allocations by category and nature                                        | [commands/allocations/report.md](commands/allocations/report.md)       |
-| `bebu allocations set`       | runnable | Preview one absolute allocation or match its linked savings account                         | [commands/allocations/set.md](commands/allocations/set.md)             |
-| `bebu auth`                  | group    | Sign in through your browser and manage the saved connection                                | [commands/auth.md](commands/auth.md)                                   |
-| `bebu auth login`            | runnable | Connect through your Chrome session. If necessary, wait for sign-in                         | [commands/auth/login.md](commands/auth/login.md)                       |
-| `bebu auth logout`           | runnable | Delete local credentials and the separate bebu profile. Your Chrome profile stays intact    | [commands/auth/logout.md](commands/auth/logout.md)                     |
-| `bebu auth status`           | runnable | Show saved connection state as JSON                                                         | [commands/auth/status.md](commands/auth/status.md)                     |
-| `bebu budget`                | group    | Read budget diagnostics                                                                     | [commands/budget.md](commands/budget.md)                               |
-| `bebu budget diagnostics`    | runnable | Read stored account/category links and allocation settings with their source paths          | [commands/budget/diagnostics.md](commands/budget/diagnostics.md)       |
-| `bebu categories`            | group    | Read expense and payment categories                                                         | [commands/categories.md](commands/categories.md)                       |
-| `bebu categories carryover`  | runnable | Audit stored category carryover across saved months without financial writes                | [commands/categories/carryover.md](commands/categories/carryover.md)   |
-| `bebu categories funding`    | runnable | Read category funds for one month in integer minor units                                    | [commands/categories/funding.md](commands/categories/funding.md)       |
-| `bebu categories list`       | runnable | List category IDs and types                                                                 | [commands/categories/list.md](commands/categories/list.md)             |
-| `bebu payees`                | group    | Read payees                                                                                 | [commands/payees.md](commands/payees.md)                               |
-| `bebu payees list`           | runnable | List IDs and usage counts for payees                                                        | [commands/payees/list.md](commands/payees/list.md)                     |
-| `bebu schema`                | runnable | Show JSON schemas for write payloads                                                        | [commands/schema.md](commands/schema.md)                               |
-| `bebu session`               | group    | Import authentication from a signed-in browser                                              | [commands/session.md](commands/session.md)                             |
-| `bebu session import`        | runnable | Import one session source. Playwright state must include IndexedDB                          | [commands/session/import.md](commands/session/import.md)               |
-| `bebu session prepare`       | runnable | Prepare an encrypted session handoff without credentials in the output                      | [commands/session/prepare.md](commands/session/prepare.md)             |
-| `bebu session status`        | runnable | Show session expiry and budget IDs without credentials                                      | [commands/session/status.md](commands/session/status.md)               |
-| `bebu skills`                | group    | Generate or install the bebu agent skill                                                    | [commands/skills.md](commands/skills.md)                               |
-| `bebu skills generate`       | runnable | Generate references and refresh an existing managed local bebu skill copy                   | [commands/skills/generate.md](commands/skills/generate.md)             |
-| `bebu skills install`        | runnable | Generate and copy the bebu skill into .agents/skills in this project                        | [commands/skills/install.md](commands/skills/install.md)               |
-| `bebu tags`                  | group    | Read tags                                                                                   | [commands/tags.md](commands/tags.md)                                   |
-| `bebu tags list`             | runnable | List IDs and usage counts for tags                                                          | [commands/tags/list.md](commands/tags/list.md)                         |
-| `bebu targets`               | group    | Inspect stored category targets                                                             | [commands/targets.md](commands/targets.md)                             |
-| `bebu targets list`          | runnable | Read target settings separately from category funds                                         | [commands/targets/list.md](commands/targets/list.md)                   |
-| `bebu transactions`          | group    | Read history and edit expenses, income, and upcoming recurring payments                     | [commands/transactions.md](commands/transactions.md)                   |
-| `bebu transactions create`   | runnable | Create one-off or recurring expenses, income, and card refunds without automatic allocation | [commands/transactions/create.md](commands/transactions/create.md)     |
-| `bebu transactions delete`   | runnable | Delete one occurrence or a verified recurring chain with atomic ledger reversal             | [commands/transactions/delete.md](commands/transactions/delete.md)     |
-| `bebu transactions list`     | runnable | Read the complete history, including older records absent from the app cache                | [commands/transactions/list.md](commands/transactions/list.md)         |
-| `bebu transactions show`     | runnable | Read a complete transaction record                                                          | [commands/transactions/show.md](commands/transactions/show.md)         |
-| `bebu transactions update`   | runnable | Edit transaction amounts, details, dates, and upcoming recurrence rules                     | [commands/transactions/update.md](commands/transactions/update.md)     |
+| Command                       | Type     | Description                                                                                 | Documentation                                                            |
+| ----------------------------- | -------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `bebu`                        | group    | A command-line tool for Beyond Budget accounts and transactions.                            | [commands/bebu.md](commands/bebu.md)                                     |
+| `bebu accounts`               | group    | Read accounts and change their configuration                                                | [commands/accounts.md](commands/accounts.md)                             |
+| `bebu accounts list`          | runnable | List account IDs and balances in integer minor units                                        | [commands/accounts/list.md](commands/accounts/list.md)                   |
+| `bebu accounts show`          | runnable | Read a complete account record                                                              | [commands/accounts/show.md](commands/accounts/show.md)                   |
+| `bebu accounts update`        | runnable | Change the account configuration. Use schema for the accepted JSON fields                   | [commands/accounts/update.md](commands/accounts/update.md)               |
+| `bebu allocations`            | group    | Plan and save manual allocations, inspect history, or preview target funding                | [commands/allocations.md](commands/allocations.md)                       |
+| `bebu allocations apply`      | runnable | Apply one reviewed manual allocation plan atomically                                        | [commands/allocations/apply.md](commands/allocations/apply.md)           |
+| `bebu allocations averages`   | runnable | Read average allocation and spending from prior saved months                                | [commands/allocations/averages.md](commands/allocations/averages.md)     |
+| `bebu allocations history`    | runnable | Read native allocation history, optionally with matching transactions                       | [commands/allocations/history.md](commands/allocations/history.md)       |
+| `bebu allocations operation`  | runnable | Inspect the original local allocation operation without sending writes                      | [commands/allocations/operation.md](commands/allocations/operation.md)   |
+| `bebu allocations preview`    | runnable | Calculate target or restricted smart funding without changing the budget                    | [commands/allocations/preview.md](commands/allocations/preview.md)       |
+| `bebu allocations recover`    | runnable | Observe the original allocation marker without resending uncertain work                     | [commands/allocations/recover.md](commands/allocations/recover.md)       |
+| `bebu allocations report`     | runnable | Summarize monthly allocations by category and nature                                        | [commands/allocations/report.md](commands/allocations/report.md)         |
+| `bebu allocations set`        | runnable | Preview one absolute allocation or match its linked savings account                         | [commands/allocations/set.md](commands/allocations/set.md)               |
+| `bebu auth`                   | group    | Sign in through your browser and manage the saved connection                                | [commands/auth.md](commands/auth.md)                                     |
+| `bebu auth login`             | runnable | Connect through your Chrome session. If necessary, wait for sign-in                         | [commands/auth/login.md](commands/auth/login.md)                         |
+| `bebu auth logout`            | runnable | Delete local credentials and the separate bebu profile. Your Chrome profile stays intact    | [commands/auth/logout.md](commands/auth/logout.md)                       |
+| `bebu auth status`            | runnable | Show saved connection state as JSON                                                         | [commands/auth/status.md](commands/auth/status.md)                       |
+| `bebu budget`                 | group    | Read budget diagnostics                                                                     | [commands/budget.md](commands/budget.md)                                 |
+| `bebu budget diagnostics`     | runnable | Read stored account/category links and allocation settings with their source paths          | [commands/budget/diagnostics.md](commands/budget/diagnostics.md)         |
+| `bebu categories`             | group    | Read categories and rename supported ordinary categories                                    | [commands/categories.md](commands/categories.md)                         |
+| `bebu categories carryover`   | runnable | Audit stored category carryover across saved months without financial writes                | [commands/categories/carryover.md](commands/categories/carryover.md)     |
+| `bebu categories funding`     | runnable | Read category funds for one month in integer minor units                                    | [commands/categories/funding.md](commands/categories/funding.md)         |
+| `bebu categories list`        | runnable | List category IDs and types                                                                 | [commands/categories/list.md](commands/categories/list.md)               |
+| `bebu categories rename`      | runnable | Rename one category without changing financial or hierarchy fields                          | [commands/categories/rename.md](commands/categories/rename.md)           |
+| `bebu groups`                 | group    | Read groups and rename supported ordinary groups                                            | [commands/groups.md](commands/groups.md)                                 |
+| `bebu groups list`            | runnable | List group IDs, names, and modification settings                                            | [commands/groups/list.md](commands/groups/list.md)                       |
+| `bebu groups rename`          | runnable | Rename one group without changing financial or hierarchy fields                             | [commands/groups/rename.md](commands/groups/rename.md)                   |
+| `bebu payees`                 | group    | Read payees                                                                                 | [commands/payees.md](commands/payees.md)                                 |
+| `bebu payees list`            | runnable | List IDs and usage counts for payees                                                        | [commands/payees/list.md](commands/payees/list.md)                       |
+| `bebu schema`                 | runnable | Show JSON schemas for write payloads                                                        | [commands/schema.md](commands/schema.md)                                 |
+| `bebu session`                | group    | Import authentication from a signed-in browser                                              | [commands/session.md](commands/session.md)                               |
+| `bebu session import`         | runnable | Import one session source. Playwright state must include IndexedDB                          | [commands/session/import.md](commands/session/import.md)                 |
+| `bebu session prepare`        | runnable | Prepare an encrypted session handoff without credentials in the output                      | [commands/session/prepare.md](commands/session/prepare.md)               |
+| `bebu session status`         | runnable | Show session expiry and budget IDs without credentials                                      | [commands/session/status.md](commands/session/status.md)                 |
+| `bebu skills`                 | group    | Generate or install the bebu agent skill                                                    | [commands/skills.md](commands/skills.md)                                 |
+| `bebu skills generate`        | runnable | Generate references and refresh an existing managed local bebu skill copy                   | [commands/skills/generate.md](commands/skills/generate.md)               |
+| `bebu skills install`         | runnable | Generate and copy the bebu skill into .agents/skills in this project                        | [commands/skills/install.md](commands/skills/install.md)                 |
+| `bebu tags`                   | group    | Read tags                                                                                   | [commands/tags.md](commands/tags.md)                                     |
+| `bebu tags list`              | runnable | List IDs and usage counts for tags                                                          | [commands/tags/list.md](commands/tags/list.md)                           |
+| `bebu targets`                | group    | Inspect targets and remove supported monthly spending targets                               | [commands/targets.md](commands/targets.md)                               |
+| `bebu targets list`           | runnable | Read target settings separately from category funds                                         | [commands/targets/list.md](commands/targets/list.md)                     |
+| `bebu targets remove`         | runnable | Remove a monthly spending target without changing stored funding                            | [commands/targets/remove.md](commands/targets/remove.md)                 |
+| `bebu transactions`           | group    | Read history and edit expenses, income, and upcoming recurring payments                     | [commands/transactions.md](commands/transactions.md)                     |
+| `bebu transactions create`    | runnable | Create one-off or recurring expenses, income, and card refunds without automatic allocation | [commands/transactions/create.md](commands/transactions/create.md)       |
+| `bebu transactions delete`    | runnable | Delete one occurrence or a verified recurring chain with atomic ledger reversal             | [commands/transactions/delete.md](commands/transactions/delete.md)       |
+| `bebu transactions list`      | runnable | Read the complete history, including older records absent from the app cache                | [commands/transactions/list.md](commands/transactions/list.md)           |
+| `bebu transactions operation` | runnable | Inspect a durable local transaction operation                                               | [commands/transactions/operation.md](commands/transactions/operation.md) |
+| `bebu transactions recover`   | runnable | Observe a saved transaction request without resending financial writes                      | [commands/transactions/recover.md](commands/transactions/recover.md)     |
+| `bebu transactions show`      | runnable | Read a complete transaction record                                                          | [commands/transactions/show.md](commands/transactions/show.md)           |
+| `bebu transactions update`    | runnable | Edit transaction amounts, details, dates, and upcoming recurrence rules                     | [commands/transactions/update.md](commands/transactions/update.md)       |

@@ -22,6 +22,10 @@ export class FirestoreTransaction {
     this.mode = mode;
   }
 
+  get transactionId(): string {
+    return this.id;
+  }
+
   async document(path: string): Promise<FirestoreDocument>;
   async document<T>(path: string, schema: z.ZodType<T>): Promise<FirestoreDocument<T>>;
   async document(

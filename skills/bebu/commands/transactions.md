@@ -10,6 +10,9 @@ Read history and edit expenses, income, and upcoming recurring payments
   atomic ledger reversal
 - [`list`](transactions/list.md) - Read the complete history, including older records absent from
   the app cache
+- [`operation`](transactions/operation.md) - Inspect a durable local transaction operation
+- [`recover`](transactions/recover.md) - Observe a saved transaction request without resending
+  financial writes
 - [`show`](transactions/show.md) - Read a complete transaction record
 - [`update`](transactions/update.md) - Edit transaction amounts, details, dates, and upcoming
   recurrence rules

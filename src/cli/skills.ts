@@ -55,6 +55,15 @@ A discontinuity does not establish an incorrect baseline. Zero residuals do not 
 For account/category links or allocation settings, use budget diagnostics. Report the returned values with their document paths.
 Unknown values and absent settings have no inferred meaning or default.
 
+## Category and group names
+
+Use categories rename ID --name NAME or groups rename ID --name NAME with an explicit budget and --dry-run.
+Use groups list to find group IDs. Add --full to inspect the exact name-only patch.
+The supported subset is active DEFAULT records with explicit modifiable:true and matching identities.
+Names use a CLI limit of 1–200 trimmed characters. A rename preserves financial, hierarchy, target, and unknown fields.
+After an uncertain rename outcome, inspect the current name before another command.
+Creation, hierarchy changes, detach, archive, and target creation/editing remain separate unsupported workflows.
+
 ## Transaction history
 
 Legacy transaction reads preserve absent fields without defaults. Inspect diagnostics and invalidRecords as well as transactions.
@@ -64,6 +73,11 @@ Without an account filter, follow nextPageToken until null, even when transactio
 Account-filtered queries have no pagination. matched includes malformed records; scanLimitReached reports the 10,000-record scan boundary.
 Missing allocation or link fields remain unknown and block writes through strict validation.
 transactions show also preserves absent legacy fields and explicit null creators without adding write defaults.
+Explicit createdBy:null is native-supported and remains null in canonical records and creator IDs in new index previews.
+Absent creator, allocation, link-type, and version fields still fail strict write validation.
+A narrow legacy card representation permits explicit null link type and version only with matching saved/current payment-category links.
+This preserves saved targets and does not repair links. All other allocation, split, editability, and historical funding guards remain.
+
 
 ## Allocation requests
 
@@ -78,6 +92,14 @@ The preview reports executionSupported:false and cannot save allocations.
 For allocation records, use allocations history. For category and nature totals, use allocations report.
 For positive historical averages, use allocations averages with an explicit reference month.
 For raw target settings, use targets list. Category availability is not target progress.
+For removing an existing ordinary monthly spending target, use targets remove CATEGORY_ID with an explicit budget and --dry-run.
+The subset requires a flat active DEFAULT category with modifiable:true and a complete known target shape.
+Repeat intervals, savings targets, snooze schedules, and hierarchy remain guarded.
+Raw account links remain untouched and uninterpreted; native target removal does not consume them.
+Removal deletes the whole target under its snapshot version. Stored account money, category funding, and history are not directly changed.
+Future target demand and automatic funding suggestions intentionally change. Preview the complete previous target before submitting.
+Target creation and editing remain unsupported; removing a target does not repair funding or a carryover discrepancy.
+
 
 For one manual allocation, use allocations set --dry-run with --amount-minor or --match-linked.
 The CLI calculates the complete pool, availability, linked-account diagnostics, and native history effects.
@@ -144,17 +166,19 @@ Transactions with active native allocation predicates, allocation history, or au
 Inactive allocation flags alone do not block supported edits or deletion. Updates preserve recurring clone links and never rewrite another occurrence.
 Notes, color, sentiment, location, and reminder metadata remain editable within the command's other restrictions. Do not remove allocation flags or history to bypass a rejection.
 
-For an identical retry, reuse the request ID and original payload. For a different operation, use a new request ID.
-For create retries, preserve the resolved id, dueAt, timezone, completed, and cleared fields.
-
-Commit errors report requestId, outcome, conflict, marker, preconditions, and recovery.
-For outcome rejected with recovery refresh-preview, read the current state and run a fresh dry run.
-Review the new effects before an identical retry with the original payload and request ID.
-For outcome unknown or recovery inspect-before-retry, inspect the transaction, affected documents, and save marker before any resend.
-An absent marker after a lost response does not establish rejection. The CLI never automatically retries a failed commit.
-
-For transaction commands, save markers do not bind request IDs to payloads. An alreadyCommitted result proves marker existence only.
-A retry can fail before marker lookup, including after deletion. After marker expiry, duplicate detection is not guaranteed.
+Transaction commands permanently bind each live request to actor, budget, action, transaction, and original input in BEBU_HOME.
+They save the exact compiled commit body before dispatch. Keep these permanent operation records.
+For inspection, use transactions operation REQUEST_ID with an explicit budget.
+For marker and current-version observations, use transactions recover REQUEST_ID with the same budget.
+Both matching retries and recovery only observe; they never resend, including requests previously rejected.
+Recovery checks at most 50 submitted document versions and reports the remaining count. These reads are not one snapshot.
+Marker presence and current values do not establish an unknown outcome; native markers contain no payload hash.
+Commit errors retain native error codes and preconditions in commitDiagnostic alongside local operation status.
+After an authoritative rejection, review fresh state and a new dry run before using a new request ID.
+For create, preserve the resolved transaction identity and date from the saved submission; inspect before creating any replacement.
+For sending or unknown outcomes, keep the request identity and observe. Do not send a replacement to work around uncertainty.
+Missing or corrupt local records, old untracked requests, and other installations lack the durable binding guarantee.
+Local record loss and marker expiry do not authorize replay.
 
 ## Command reference
 
