@@ -72,7 +72,13 @@ Explicit safe orders must remain unambiguous. Attach writes the parent and group
 These operations preserve stored amounts and order but change parent coverage membership. Future funding outcomes are not predicted.
 They do not repair carryover or enable historical transaction edits. Inspect categories list --full after an uncertain outcome.
 Marker-only confirmation cannot prove the requested hierarchy change. Do not blindly retry.
-Cross-group moves, targeted or linked families, deeper trees, creation, archive, and reordering remain unsupported.
+Cross-group moves, targeted or linked families, deeper trees, group creation, archive, and reordering remain unsupported.
+A bounded categories create implementation requires explicit --budget, --group, --name, --icon and --color.
+It supports nonempty flat ordinary groups with explicit safe unique orders and appends after the highest peer order.
+Review --dry-run --full. The new native DEFAULT/ALL category and empty stash are saved atomically without financial writes.
+Existing amounts and settings are untouched. No missing financial values are supplied.
+Its deployed CLI envelope still needs disposable-lab verification before production use.
+Permanent operation records bind the generated identity and body. Use transactions operation/recover after uncertainty; never replay or replace the request.
 
 ## Transaction history
 
@@ -153,7 +159,10 @@ Native income allocation, linked-account allocation, and bulk allocation are sep
 A completed CLI card expense can overspend its category and increases the linked payment category's otherAmount by the full amount.
 Use transactions create with type REFUND, positive amountMinor, a credit-card accountId, and an expense categoryId for a refund.
 A refund reduces card debt, category spending, and the linked payment reserve. It is stored as a positive OUTFLOW with subtype REFUND.
-New refunds use editable:false, matching the native refund screen. Dry runs show editable; the CLI rejects later updates and deletion.
+New refunds use editable:false, matching the native refund screen. These newly created refunds reject later updates and deletion.
+An existing imported positive OUTFLOW/REFUND with explicit editable:true retains that value.
+Its category edit uses signed refund effects and retains strict link, allocation, reconciliation, split and historical guards.
+This existing CLI behavior does not establish a monitored native workflow for that imported shape.
 Expense categories linked to other accounts still require the native app.
 These effects do not allocate category funds. Historical dueAt timestamps remain intact; completed entries need a saved period.
 An uncleared expense or refund changes only the uncleared account balance. Clearing moves it into the cleared balance and account history.

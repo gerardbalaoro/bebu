@@ -159,3 +159,16 @@ Native bulk category update 52151 does not itself exclude splits or reconciled r
 a complete sibling or reconciliation persistence contract. Those existing CLI guards remain. Do not
 strip split IDs, clear reconciliation/editability flags, invent allocations, or repair carryover
 through unrelated savings or reallocation operations.
+
+## Category Creation Awaiting Lab Verification
+
+[Ordinary Category Creation](category-creation.md) records the new worktree implementation and its
+retained native evidence. The deployed CLI envelope still requires disposable-lab validation before
+production use. It creates one ordinary category and an empty stash, with durable request binding
+and complete acknowledgment checks. Existing financial values remain untouched. Group creation,
+empty groups, hierarchy, and other lifecycle operations remain outside this subset.
+
+An imported positive card refund with explicit editable:true differs from a native immutable refund.
+The existing CLI category-update path preserves its sign and editability. A focused regression
+verifies unchanged account money, reserves, and flags. Historical funding guards remain, and no
+positive-refund native runtime workflow is claimed.

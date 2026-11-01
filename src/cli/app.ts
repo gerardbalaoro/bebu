@@ -21,6 +21,7 @@ import { allocationHistory } from "../budget/allocation-history.ts";
 import { allocationReport } from "../budget/allocation-report.ts";
 import { previewSmartAllocation, previewTargetAllocation } from "../budget/auto-allocation.ts";
 import { categoryCarryover } from "../budget/carryover.ts";
+import { CategoryCreationSchema, CategoryCreationService } from "../budget/category-create.ts";
 import { changeCategoryParent } from "../budget/category-hierarchy.ts";
 import { StructureService } from "../budget/category-structure.ts";
 import { budgetDiagnostics } from "../budget/diagnostics.ts";
@@ -1032,9 +1033,71 @@ export const createApp = (): AnyCrust => {
     .add(
       defineCommand(
         "categories",
-        { description: "Read categories and change supported names or hierarchy" },
+        { description: "Read categories and create or change supported ordinary categories" },
         (command) =>
           command
+            .add(
+              defineCommand(
+                "create",
+                {
+                  description: "Create one ordinary category and its empty stash atomically",
+                  sections: [
+                    {
+                      body: "Requires an explicit budget, name, group, icon and color. Choose icon/color codes from categories list --full. Only ordinary zero-based budgets without a challenge and active modifiable DEFAULT groups are supported. The nonempty selected group must be flat, with explicit unique safe peer orders. The command appends after the highest order and rejects duplicate names. It creates the native DEFAULT/ALL/UNCATEGORIZED category with no account links, target or parent, plus an empty CATEGORY stash. Existing financial records are untouched; no missing financial amounts are assigned. Review --dry-run --full. Live execution reads fresh state and binds the exact generated identity and commit body to permanent operation records. Use transactions operation/recover with the original request ID after uncertainty; never replay or replace it. Group creation, empty groups, other policies, hierarchy, funding and historical transaction edits remain unsupported. Retained native creation acknowledgments establish the write shape; deployed CLI creation still requires disposable-lab verification before production use.",
+                      title: "Supported subset",
+                    },
+                  ],
+                },
+                (leaf) =>
+                  leaf
+                    .flags(
+                      compactFlag,
+                      fullFlag,
+                      dryRunFlag,
+                      requestFlag,
+                      defineFlag("budget", {
+                        description: "Explicit budget ID",
+                        required: true,
+                        type: "string",
+                      }),
+                      defineFlag("name", {
+                        description: "New category name",
+                        required: true,
+                        type: "string",
+                      }),
+                      defineFlag("group", {
+                        description: "Existing ordinary group ID",
+                        required: true,
+                        type: "string",
+                      }),
+                      defineFlag("icon", {
+                        description: "Icon code from an existing category",
+                        required: true,
+                        type: "string",
+                      }),
+                      defineFlag("color", {
+                        description: "Color code from an existing category",
+                        required: true,
+                        type: "string",
+                      })
+                    )
+                    .action(async ({ flags, stdout }) => {
+                      const result = await new CategoryCreationService(
+                        await clientFor(flags.budget)
+                      ).create(
+                        {
+                          color: flags.color,
+                          groupId: flags.group,
+                          icon: flags.icon,
+                          name: flags.name,
+                        },
+                        writeOptions(flags)
+                      );
+
+                      print(stdout, writeResult(result, flags.full), flags.compact);
+                    })
+              )
+            )
             .add(renameCommand("category"))
             .add(hierarchyCommand("attach"))
             .add(hierarchyCommand("detach"))
@@ -1169,6 +1232,7 @@ export const createApp = (): AnyCrust => {
             stdout,
             {
               accountUpdate: z.toJSONSchema(AccountPatchSchema),
+              categoryCreate: z.toJSONSchema(CategoryCreationSchema),
               transactionCreate: z.toJSONSchema(TransactionCreateSchema),
               transactionDelete: z.toJSONSchema(TransactionDeleteSchema),
               transactionUpdate: z.toJSONSchema(TransactionPatchSchema),

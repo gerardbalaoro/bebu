@@ -32,7 +32,7 @@ const RequestIdSchema = z
   .regex(/^[A-Za-z0-9]{20}$/u, "request-id must contain exactly 20 letters or digits");
 
 const IntentSchema = z.strictObject({
-  action: z.enum(["create", "update", "delete", "reallocate"]),
+  action: z.enum(["create", "update", "delete", "reallocate", "create-category"]),
   input: DataSchema,
   transactionId: z.string().optional(),
 });

@@ -1,12 +1,13 @@
 # `bebu categories`
 
-Read categories and change supported names or hierarchy
+Read categories and create or change supported ordinary categories
 
 ## Subcommands
 
 - [`attach`](categories/attach.md) - Make an ordinary category a direct subcategory
 - [`carryover`](categories/carryover.md) - Audit stored category carryover across saved months
   without financial writes
+- [`create`](categories/create.md) - Create one ordinary category and its empty stash atomically
 - [`detach`](categories/detach.md) - Move an ordinary subcategory out of its parent
 - [`funding`](categories/funding.md) - Read category funds for one month in integer minor units
 - [`list`](categories/list.md) - List category IDs and types
