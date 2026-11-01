@@ -22,6 +22,7 @@ import { allocationReport } from "../budget/allocation-report.ts";
 import { previewSmartAllocation, previewTargetAllocation } from "../budget/auto-allocation.ts";
 import { categoryCarryover } from "../budget/carryover.ts";
 import { CategoryCreationSchema, CategoryCreationService } from "../budget/category-create.ts";
+import { previewCategoryGroupMove } from "../budget/category-group.ts";
 import { changeCategoryParent } from "../budget/category-hierarchy.ts";
 import { StructureService } from "../budget/category-structure.ts";
 import { budgetDiagnostics } from "../budget/diagnostics.ts";
@@ -1099,6 +1100,71 @@ export const createApp = (): AnyCrust => {
               )
             )
             .add(renameCommand("category"))
+            .add(
+              defineCommand(
+                "move",
+                {
+                  description: "Preview appending one ordinary category to another group",
+                  sections: [
+                    {
+                      body: "Requires --dry-run and explicit --budget, --from-group and --group. The source must be an active modifiable DEFAULT category without a parent, children, target or stored account links. Both groups must be active modifiable DEFAULT groups with explicit native integer orders. The destination must follow the source group and be nonempty and flat. Affected peers need explicit unique nonnegative native integer orders. The preview appends after the highest destination order and proposes only groupId/order patches, preserving other fields. No financial amounts or missing settings receive defaults. executionSupported is false. Native append-move evidence and deployed CLI lab validation remain required before a live writer is enabled. This command cannot execute a move, create an operation record, or bypass transaction guards.",
+                      title: "Preview only",
+                    },
+                  ],
+                },
+                (leaf) =>
+                  leaf
+                    .args(
+                      defineArg("id", {
+                        description: "Category ID",
+                        required: true,
+                        type: "string",
+                      })
+                    )
+                    .flags(
+                      compactFlag,
+                      fullFlag,
+                      dryRunFlag,
+                      defineFlag("budget", {
+                        description: "Explicit budget ID",
+                        required: true,
+                        type: "string",
+                      }),
+                      defineFlag("from-group", {
+                        description: "Expected current group ID",
+                        required: true,
+                        type: "string",
+                      }),
+                      defineFlag("group", {
+                        description: "Destination group ID",
+                        required: true,
+                        type: "string",
+                      })
+                    )
+                    .action(async ({ args, flags, stdout }) => {
+                      if (flags["dry-run"] !== true) {
+                        throw new Error(
+                          "Category group moves require lab validation before execution; use --dry-run for a read-only preview"
+                        );
+                      }
+
+                      const result = await previewCategoryGroupMove(
+                        new BeyondClient(await loadSession(), { budget: flags.budget }),
+                        {
+                          categoryId: args.id,
+                          fromGroupId: flags["from-group"],
+                          groupId: flags.group,
+                        }
+                      );
+
+                      print(
+                        stdout,
+                        flags.full === true ? result : { dryRun: true, summary: result.summary },
+                        flags.compact
+                      );
+                    })
+              )
+            )
             .add(hierarchyCommand("attach"))
             .add(hierarchyCommand("detach"))
             .add(fundingCommand)

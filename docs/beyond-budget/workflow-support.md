@@ -168,6 +168,12 @@ command creates one ordinary category and an empty stash, with durable request b
 acknowledgment checks. Complete lab comparisons preserved existing financial values. Group creation,
 empty groups, hierarchy, and other lifecycle operations remain outside this subset.
 
+## Group Move Preview
+
+[Category Group Move Preview](category-group-moves.md) describes a read-only append proposal.
+`categories move --dry-run` reports `executionSupported:false`; group-move execution still requires
+matching native and deployed CLI lab validation.
+
 ## Monitored Native Category Edits
 
 [Native Category And Split Edits](native-category-edits.md) records bounded disposable-lab evidence.

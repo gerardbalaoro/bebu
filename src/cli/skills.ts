@@ -73,6 +73,8 @@ These operations preserve stored amounts and order but change parent coverage me
 They do not repair carryover or enable historical transaction edits. Inspect categories list --full after an uncertain outcome.
 Marker-only confirmation cannot prove the requested hierarchy change. Do not blindly retry.
 Cross-group moves, targeted or linked families, deeper trees, group creation, archive, and reordering remain unsupported.
+For a read-only append proposal, use categories move ID --from-group OLD --group NEW --budget BUDGET --dry-run --full.
+It reports executionSupported:false. Live group moves still require native and deployed CLI lab validation.
 A bounded categories create implementation requires explicit --budget, --group, --name, --icon and --color.
 It supports nonempty flat ordinary groups with explicit safe unique orders and appends after the highest peer order.
 Review --dry-run --full. The new native DEFAULT/ALL category and empty stash are saved atomically without financial writes.

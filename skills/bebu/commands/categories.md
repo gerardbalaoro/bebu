@@ -11,6 +11,7 @@ Read categories and create or change supported ordinary categories
 - [`detach`](categories/detach.md) - Move an ordinary subcategory out of its parent
 - [`funding`](categories/funding.md) - Read category funds for one month in integer minor units
 - [`list`](categories/list.md) - List category IDs and types
+- [`move`](categories/move.md) - Preview appending one ordinary category to another group
 - [`rename`](categories/rename.md) - Rename one category without changing financial or hierarchy
   fields
 
