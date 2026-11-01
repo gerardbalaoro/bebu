@@ -97,7 +97,7 @@ remain unresolved; preserve existing data and do not blindly replay them.
   target funding
 - [`auth`](auth.md) - Sign in through your browser and manage the saved connection
 - [`budget`](budget.md) - Read budget diagnostics
-- [`categories`](categories.md) - Read categories and rename supported ordinary categories
+- [`categories`](categories.md) - Read categories and change supported names or hierarchy
 - [`groups`](groups.md) - Read groups and rename supported ordinary groups
 - [`payees`](payees.md) - Read payees
 - [`schema`](schema.md) - Show JSON schemas for write payloads

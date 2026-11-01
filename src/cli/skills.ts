@@ -62,7 +62,17 @@ Use groups list to find group IDs. Add --full to inspect the exact name-only pat
 The supported subset is active DEFAULT records with explicit modifiable:true and matching identities.
 Names use a CLI limit of 1–200 trimmed characters. A rename preserves financial, hierarchy, target, and unknown fields.
 After an uncertain rename outcome, inspect the current name before another command.
-Category/group creation, hierarchy changes, detach, and archive remain separate unsupported workflows.
+For a bounded hierarchy change, use categories attach ID --parent PARENT_ID or categories detach ID --parent EXPECTED_PARENT_ID.
+Use an explicit budget and review --dry-run --full first. Parent intent is required for both commands.
+Only active modifiable DEFAULT categories and groups, within one group and one level, are supported. The source cannot have children.
+Every member of the affected parent family must lack target, aggregation, accumulation, and computation settings.
+Stored link lists must be absent or empty. The complete account index must provide explicit link fields and exclude family links.
+Absent category link lists remain absent; no financial defaults or link repairs are assigned.
+Explicit safe orders must remain unambiguous. Attach writes the parent and group fields; detach deletes the parent field.
+These operations preserve stored amounts and order but change parent coverage membership. Future funding outcomes are not predicted.
+They do not repair carryover or enable historical transaction edits. Inspect categories list --full after an uncertain outcome.
+Marker-only confirmation cannot prove the requested hierarchy change. Do not blindly retry.
+Cross-group moves, targeted or linked families, deeper trees, creation, archive, and reordering remain unsupported.
 
 ## Transaction history
 

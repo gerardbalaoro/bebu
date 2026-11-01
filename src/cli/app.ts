@@ -21,6 +21,7 @@ import { allocationHistory } from "../budget/allocation-history.ts";
 import { allocationReport } from "../budget/allocation-report.ts";
 import { previewSmartAllocation, previewTargetAllocation } from "../budget/auto-allocation.ts";
 import { categoryCarryover } from "../budget/carryover.ts";
+import { changeCategoryParent } from "../budget/category-hierarchy.ts";
 import { StructureService } from "../budget/category-structure.ts";
 import { budgetDiagnostics } from "../budget/diagnostics.ts";
 import { categoryFunding } from "../budget/funding.ts";
@@ -304,6 +305,48 @@ const renameCommand = (kind: "category" | "group") =>
           const { body, ...summary } = result;
           void body;
           print(stdout, summary, flags.compact);
+        })
+  );
+
+const hierarchyCommand = (action: "attach" | "detach") =>
+  defineCommand(
+    action,
+    {
+      description:
+        action === "attach"
+          ? "Make an ordinary category a direct subcategory"
+          : "Move an ordinary subcategory out of its parent",
+      sections: [
+        {
+          body: "Use --parent for the intended parent on attach or expected current parent on detach. Supports active DEFAULT categories and group with explicit modifiable:true, in the same group, one level only. The source must have no children. The entire affected family must lack target, aggregation, accumulation, and computation settings and recorded links. Every account must have explicit link evidence; a family account link blocks the change. Missing category link lists are preserved without defaults. Explicit safe orders must remain unambiguous; no order is changed. Attach writes parentCategoryId and groupId; detach deletes parentCategoryId. Reads and commit share one optimistic transaction. No direct funding, history, account, target, or transaction writes occur. Parent coverage membership changes and future funding outcomes are not predicted. This does not repair carryover or enable historical transaction edits. Preview with an explicit budget and --dry-run --full. After uncertainty or marker-only confirmation, inspect categories list --full before another command; do not blindly retry. Cross-group moves, targeted or linked families, subtrees, creation, archive, and reordering remain unsupported.",
+          title: "Supported subset",
+        },
+      ],
+    },
+    (leaf) =>
+      leaf
+        .flags(...writeFlags, {
+          description:
+            action === "attach"
+              ? "Intended top-level parent ID in the same group"
+              : "Expected current parent ID",
+          name: "parent",
+          required: true,
+          type: "string",
+        })
+        .args(idArg)
+        .action(async ({ args, flags, stdout }) => {
+          const result = await changeCategoryParent(
+            await clientFor(flags.budget),
+            {
+              action,
+              categoryId: args.id,
+              parentId: flags.parent,
+            },
+            writeOptions(flags)
+          );
+
+          print(stdout, writeResult(result, flags.full), flags.compact);
         })
   );
 
@@ -927,10 +970,12 @@ export const createApp = (): AnyCrust => {
     .add(
       defineCommand(
         "categories",
-        { description: "Read categories and rename supported ordinary categories" },
+        { description: "Read categories and change supported names or hierarchy" },
         (command) =>
           command
             .add(renameCommand("category"))
+            .add(hierarchyCommand("attach"))
+            .add(hierarchyCommand("detach"))
             .add(fundingCommand)
             .add(
               defineCommand(

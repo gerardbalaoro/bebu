@@ -49,8 +49,20 @@ Use categories rename ID --name NAME or groups rename ID --name NAME with an exp
 supported subset is active DEFAULT records with explicit modifiable:true and matching identities.
 Names use a CLI limit of 1–200 trimmed characters. A rename preserves financial, hierarchy, target,
 and unknown fields. After an uncertain rename outcome, inspect the current name before another
-command. Category/group creation, hierarchy changes, detach, and archive remain separate unsupported
-workflows.
+command. For a bounded hierarchy change, use categories attach ID --parent PARENT_ID or categories
+detach ID --parent EXPECTED_PARENT_ID. Use an explicit budget and review --dry-run --full first.
+Parent intent is required for both commands. Only active modifiable DEFAULT categories and groups,
+within one group and one level, are supported. The source cannot have children. Every member of the
+affected parent family must lack target, aggregation, accumulation, and computation settings. Stored
+link lists must be absent or empty. The complete account index must provide explicit link fields and
+exclude family links. Absent category link lists remain absent; no financial defaults or link
+repairs are assigned. Explicit safe orders must remain unambiguous. Attach writes the parent and
+group fields; detach deletes the parent field. These operations preserve stored amounts and order
+but change parent coverage membership. Future funding outcomes are not predicted. They do not repair
+carryover or enable historical transaction edits. Inspect categories list --full after an uncertain
+outcome. Marker-only confirmation cannot prove the requested hierarchy change. Do not blindly retry.
+Cross-group moves, targeted or linked families, deeper trees, creation, archive, and reordering
+remain unsupported.
 
 ## Transaction history
 
@@ -226,8 +238,10 @@ and marker expiry do not authorize replay.
 | `bebu auth status`            | runnable | Show saved connection state as JSON                                                         | [commands/auth/status.md](commands/auth/status.md)                       |
 | `bebu budget`                 | group    | Read budget diagnostics                                                                     | [commands/budget.md](commands/budget.md)                                 |
 | `bebu budget diagnostics`     | runnable | Read stored account/category links and allocation settings with their source paths          | [commands/budget/diagnostics.md](commands/budget/diagnostics.md)         |
-| `bebu categories`             | group    | Read categories and rename supported ordinary categories                                    | [commands/categories.md](commands/categories.md)                         |
+| `bebu categories`             | group    | Read categories and change supported names or hierarchy                                     | [commands/categories.md](commands/categories.md)                         |
+| `bebu categories attach`      | runnable | Make an ordinary category a direct subcategory                                              | [commands/categories/attach.md](commands/categories/attach.md)           |
 | `bebu categories carryover`   | runnable | Audit stored category carryover across saved months without financial writes                | [commands/categories/carryover.md](commands/categories/carryover.md)     |
+| `bebu categories detach`      | runnable | Move an ordinary subcategory out of its parent                                              | [commands/categories/detach.md](commands/categories/detach.md)           |
 | `bebu categories funding`     | runnable | Read category funds for one month in integer minor units                                    | [commands/categories/funding.md](commands/categories/funding.md)         |
 | `bebu categories list`        | runnable | List category IDs and types                                                                 | [commands/categories/list.md](commands/categories/list.md)               |
 | `bebu categories rename`      | runnable | Rename one category without changing financial or hierarchy fields                          | [commands/categories/rename.md](commands/categories/rename.md)           |

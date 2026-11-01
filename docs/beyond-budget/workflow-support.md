@@ -6,16 +6,17 @@ Historical funding changes remain blocked when later saved periods exist.
 
 ## Enabled Operations
 
-| Operation                       | Command Or Behavior                                                     | Boundary                                                                                  |
-| ------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Category rename                 | `categories rename ID --name NAME --budget BUDGET --dry-run`            | Active DEFAULT category with explicit `modifiable:true`; name only                        |
-| Group lookup and rename         | `groups list`; `groups rename ID --name NAME --budget BUDGET --dry-run` | Same conservative CLI eligibility; no creation or hierarchy changes                       |
-| Target removal                  | `targets remove CATEGORY_ID --budget BUDGET --dry-run`                  | Complete positive SPENDING/MONTHLY target on a flat, active, modifiable ordinary category |
-| Target creation and editing     | `targets create CATEGORY_ID`; `targets update CATEGORY_ID`              | Explicit positive minor-unit amount and ALL/NONE target carryover; same category subset   |
-| Nullable transaction creator    | Preserve explicit `createdBy:null`                                      | Other financial, reconciliation, and editability checks still apply                       |
-| Legacy card link representation | Preserve explicit null link type and version                            | Saved/current card and reciprocal payment-category links must otherwise agree             |
-| Durable transaction inspection  | `transactions operation REQUEST_ID --budget BUDGET`                     | Trusted records from this installation                                                    |
-| Transaction outcome observation | `transactions recover REQUEST_ID --budget BUDGET`                       | No resend; native markers and current versions cannot prove an unknown outcome            |
+| Operation                       | Command Or Behavior                                                                           | Boundary                                                                                                  |
+| ------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Category rename                 | `categories rename ID --name NAME --budget BUDGET --dry-run`                                  | Active DEFAULT category with explicit `modifiable:true`; name only                                        |
+| Group lookup and rename         | `groups list`; `groups rename ID --name NAME --budget BUDGET --dry-run`                       | Same conservative CLI eligibility; no creation or hierarchy changes                                       |
+| Direct category hierarchy       | `categories attach ID --parent PARENT_ID`; `categories detach ID --parent EXPECTED_PARENT_ID` | One level, same group, ordinary modifiable family; no targets, explicit policy settings, or account links |
+| Target removal                  | `targets remove CATEGORY_ID --budget BUDGET --dry-run`                                        | Complete positive SPENDING/MONTHLY target on a flat, active, modifiable ordinary category                 |
+| Target creation and editing     | `targets create CATEGORY_ID`; `targets update CATEGORY_ID`                                    | Explicit positive minor-unit amount and ALL/NONE target carryover; same category subset                   |
+| Nullable transaction creator    | Preserve explicit `createdBy:null`                                                            | Other financial, reconciliation, and editability checks still apply                                       |
+| Legacy card link representation | Preserve explicit null link type and version                                                  | Saved/current card and reciprocal payment-category links must otherwise agree                             |
+| Durable transaction inspection  | `transactions operation REQUEST_ID --budget BUDGET`                                           | Trusted records from this installation                                                                    |
+| Transaction outcome observation | `transactions recover REQUEST_ID --budget BUDGET`                                             | No resend; native markers and current versions cannot prove an unknown outcome                            |
 
 Rename reads and commits use one Firestore transaction. Each name patch retains unrelated fields and
 carries the index version precondition. Names use a CLI limit of 1–200 trimmed characters. This
@@ -39,6 +40,23 @@ at whole-second precision. The preview shows the complete previous and proposed 
 timestamps. An unchanged amount and policy skip the save. After an uncertain outcome or marker-only
 confirmation, inspect `targets list` before another command. Do not blindly retry.
 
+For hierarchy changes, use an explicit budget and review `--dry-run --full` before saving. Detach
+requires the expected current parent; attach requires a top-level source and intended top-level
+parent. The source must have no children. The entire affected family must be active, modifiable
+DEFAULT categories in one active DEFAULT group. Target, aggregation, accumulation, and computation
+settings exclude the family, including explicit inactive settings. Each account must provide
+explicit link evidence. Family account links, malformed link lists, and incomplete account evidence
+block execution. Absent category link lists remain absent. No missing financial field receives a
+default.
+
+Hierarchy reads and commit share one optimistic transaction. Map identities, graph consistency,
+explicit safe orders, and sibling order uniqueness are checked. Attach writes the child’s parent and
+group fields. Detach deletes the parent field. Neither operation changes order or stores financial
+amounts. Parent coverage membership intentionally changes. Future funding outcomes remain
+unpredicted, and broader aggregation or coverage workflows remain unsupported. After an uncertain
+outcome or marker-only confirmation, inspect `categories list --full` before another command. Do not
+blindly retry.
+
 ## Native Evidence
 
 The function numbers below refer to the artifact identified in
@@ -52,6 +70,8 @@ not recovered server source.
 | 77053 → 77066 → 77071 → 50446 → 50468 → 50485 | Confirm target removal and delete `data.categories.<id>.target`                         |
 | 77068 → 44701; 49244 → 44701                  | Initialize monthly spending targets and rebuild their creation timestamp from the clock |
 | 49243 → 53511; 50485 → 50452                  | Serialize the complete target with timestamp values and save only the target field      |
+| 66215 → 50463 → 50481                         | Detach deletes the parent field; group and order stay unchanged                         |
+| 66214 → 50464 → 50482                         | Attach writes the parent and parent’s group; no order or ledger writes                  |
 | 48948, 51690                                  | Nullable creator decoding and preservation during serialization                         |
 | 49253                                         | Null creator produces a null preview creator ID                                         |
 | 51758                                         | Card reserve effects consume saved card type and payment-category ID, not link type     |
@@ -75,6 +95,12 @@ canonical transaction documents. Each save changed only the selected target. All
 matched their baseline after cleanup. The monthly spending branch does not read the saved creation
 timestamp when calculating demand. Other schedules can consume that timestamp and remain
 unsupported.
+
+Native and CLI detach produced equal document values. Native and CLI reattach restored all 75
+documents after synchronization. Attaching a second sibling through the CLI and detaching it
+natively also restored every document and the exact category-index wire fields. The native path
+permits more cases than the CLI. The CLI family, link, graph, and ordering checks define its
+conservative subset.
 
 ## Durable Transaction Recovery
 
@@ -110,7 +136,7 @@ evidence. A replacement ID must not conceal an unresolved earlier outcome.
 | Genuine account-link conflicts  | No repair or forced account reassignment; only the verified null representation is accepted                                                    |
 | Split changes                   | Complete sibling snapshot, group totals, indexes, native runtime parity, and conflict tests                                                    |
 | Noneditable refunds             | Ordinary native category handler retains the original record; no alternative reassignment contract established                                 |
-| Category/group lifecycle        | Create, move, detach, archive, ordering, descendant and aggregate-target effects                                                               |
+| Other category/group lifecycle  | Creation, cross-group moves, archive, ordering, subtrees, targeted or linked families, and aggregate/coverage settings                         |
 | Other target workflows          | Savings, repeating, snoozed, hierarchical, incomplete, unknown-field, and non-native timestamp cases; broader removal subsets                  |
 | Native reallocation             | Transaction/index/allocation effects plus separately saved MONEY_REALLOCATION history, with recovery across both save boundaries               |
 | Shared recovery                 | No payload-bound remote receipt or cross-device/crash proof after local-record loss                                                            |
