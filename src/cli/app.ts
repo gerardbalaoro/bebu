@@ -22,7 +22,7 @@ import { allocationReport } from "../budget/allocation-report.ts";
 import { previewSmartAllocation, previewTargetAllocation } from "../budget/auto-allocation.ts";
 import { categoryCarryover } from "../budget/carryover.ts";
 import { CategoryCreationSchema, CategoryCreationService } from "../budget/category-create.ts";
-import { previewCategoryGroupMove } from "../budget/category-group.ts";
+import { CategoryGroupService } from "../budget/category-group.ts";
 import { changeCategoryParent } from "../budget/category-hierarchy.ts";
 import { StructureService } from "../budget/category-structure.ts";
 import { budgetDiagnostics } from "../budget/diagnostics.ts";
@@ -1104,11 +1104,11 @@ export const createApp = (): AnyCrust => {
               defineCommand(
                 "move",
                 {
-                  description: "Preview appending one ordinary category to another group",
+                  description: "Append one ordinary category to a later group",
                   sections: [
                     {
-                      body: "Requires --dry-run and explicit --budget, --from-group and --group. The source must be an active modifiable DEFAULT category without a parent, children, target or stored account links. Both groups must be active modifiable DEFAULT groups with explicit native integer orders. The destination must follow the source group and be nonempty and flat. Affected peers need explicit unique nonnegative native integer orders. The preview appends after the highest destination order and proposes only groupId/order patches, preserving other fields. No financial amounts or missing settings receive defaults. executionSupported is false. Native append-move evidence and deployed CLI lab validation remain required before a live writer is enabled. This command cannot execute a move, create an operation record, or bypass transaction guards.",
-                      title: "Preview only",
+                      body: "Review --dry-run --full with explicit --budget, --from-group and --group. The source must be an active modifiable DEFAULT category without a parent, children, target or stored account links. Both groups must be active modifiable DEFAULT groups with explicit native integer orders. The destination must follow the source group and be nonempty and flat. Affected peers need explicit unique nonnegative native integer orders. Every account must have a matching identity and an explicit category link field excluding the source. Missing account-link evidence rejects execution. The command patches only groupId/order, appending after the highest destination order. Other settings, absent fields, transaction identities and amounts remain unchanged. Grouped reports and future funding behavior can change. Live requests bind a permanent local request ID to their intent and exact body; only a complete original acknowledgment establishes success. Unknown/sending outcomes must never be replayed or replaced. Inspect with transactions operation/recover and retain BEBU_HOME. Reverse moves, subtrees, linked/targeted sources, empty destinations, and peer normalization remain unsupported.",
+                      title: "Bounded append move",
                     },
                   ],
                 },
@@ -1125,6 +1125,7 @@ export const createApp = (): AnyCrust => {
                       compactFlag,
                       fullFlag,
                       dryRunFlag,
+                      requestFlag,
                       defineFlag("budget", {
                         description: "Explicit budget ID",
                         required: true,
@@ -1142,26 +1143,18 @@ export const createApp = (): AnyCrust => {
                       })
                     )
                     .action(async ({ args, flags, stdout }) => {
-                      if (flags["dry-run"] !== true) {
-                        throw new Error(
-                          "Category group moves require lab validation before execution; use --dry-run for a read-only preview"
-                        );
-                      }
-
-                      const result = await previewCategoryGroupMove(
-                        new BeyondClient(await loadSession(), { budget: flags.budget }),
+                      const result = await new CategoryGroupService(
+                        new BeyondClient(await loadSession(), { budget: flags.budget })
+                      ).move(
                         {
                           categoryId: args.id,
                           fromGroupId: flags["from-group"],
                           groupId: flags.group,
-                        }
+                        },
+                        writeOptions(flags)
                       );
 
-                      print(
-                        stdout,
-                        flags.full === true ? result : { dryRun: true, summary: result.summary },
-                        flags.compact
-                      );
+                      print(stdout, writeResult(result, flags.full), flags.compact);
                     })
               )
             )

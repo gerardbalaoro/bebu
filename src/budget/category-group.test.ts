@@ -1,4 +1,4 @@
-/* oxlint-disable func-style, no-await-in-loop -- Named fixtures exercise the read-only workflow and its exact patch. */
+/* oxlint-disable func-style, no-await-in-loop -- Named fixtures exercise exact patches and permanent request ownership. */
 import { expect, spyOn, test } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -12,10 +12,12 @@ import { createApp } from "../cli/app.ts";
 import { BeyondClient } from "../firestore/client.ts";
 import type { Fetcher } from "../firestore/client.ts";
 import { DataSchema, DocumentRoot, encodeFields } from "../firestore/encoding.ts";
-import { previewCategoryGroupMove } from "./category-group.ts";
+import { CategoryGroupService } from "./category-group.ts";
+import { TransactionOperations } from "./transaction-operations.ts";
 
 const BudgetPath = `${DocumentRoot}/budgets/groupMoveLab`;
 const IndexPath = `${BudgetPath}/stashes/categories`;
+const AccountsPath = `${BudgetPath}/stashes/accounts`;
 const Timestamp = "2026-11-02T00:00:00Z";
 const Input = { categoryId: "source", fromGroupId: "old", groupId: "next" };
 
@@ -25,8 +27,14 @@ function fixture() {
   const budget = {
     availablePeriods: {},
     id: "groupMoveLab",
-    stashIdentifiers: { GROUPS_AND_CATEGORIES: "categories" },
+    stashIdentifiers: { ACCOUNTS: "accounts", GROUPS_AND_CATEGORIES: "categories" },
     type: "ZERO_BASED",
+  };
+
+  const accounts = {
+    data: z.record(z.string(), DataSchema).parse({ bank: { id: "bank", linkedCategoryId: null } }),
+    id: "accounts",
+    type: "ACCOUNTS",
   };
 
   const index = {
@@ -49,10 +57,16 @@ function fixture() {
   };
 
   const requests: { path: string; body: ReturnType<typeof DataSchema.parse> }[] = [];
+  let outcome = "success";
 
   const fetcher: Fetcher = async (input, init) => {
     const path = new URL(new Request(input).url).pathname.slice(4);
-    const body = DataSchema.parse(await new Response(init?.body).json());
+
+    const body =
+      init?.body !== undefined && init.body !== null
+        ? DataSchema.parse(await new Response(init.body).json())
+        : {};
+
     requests.push({ body, path });
 
     if (path.endsWith(":beginTransaction")) {
@@ -69,17 +83,46 @@ function fixture() {
           .array(z.string())
           .parse(body.documents)
           .map((name) => {
-            assert.ok(name === BudgetPath || name === IndexPath);
+            const document = new Map<string, z.infer<typeof DataSchema>>([
+              [BudgetPath, budget],
+              [AccountsPath, accounts],
+              [IndexPath, index],
+            ]).get(name);
+
+            assert.ok(document);
 
             return {
               found: {
-                fields: encodeFields(name === BudgetPath ? budget : index),
+                fields: encodeFields(document),
                 name,
                 updateTime: Timestamp,
               },
             };
           })
       );
+    }
+
+    if (path.includes("/saveMarkers/")) {
+      return Response.json({ error: { status: "NOT_FOUND" } }, { status: 404 });
+    }
+
+    if (path.endsWith(":commit")) {
+      if (outcome === "lost") {
+        throw new Error("lost original acknowledgment");
+      }
+
+      if (outcome === "conflict") {
+        return Response.json({ error: { status: "ABORTED" } }, { status: 409 });
+      }
+
+      return Response.json({
+        commitTime: Timestamp,
+        writeResults: outcome === "incomplete" ? [{}] : [{ updateTime: Timestamp }, {}],
+      });
+    }
+
+    if (init?.method === "GET") {
+      return Response.json({ fields: encodeFields(index), name: IndexPath, updateTime: Timestamp });
     }
 
     throw new Error(`Preview attempted an unexpected request: ${path}`);
@@ -99,16 +142,103 @@ function fixture() {
     { fetcher }
   );
 
-  return { budget, client, fetcher, index, requests };
+  return {
+    accounts,
+    budget,
+    client,
+    fail: (mode: string) => {
+      outcome = mode;
+    },
+    fetcher,
+    index,
+    requests,
+  };
 }
+
+test("live group move binds the exact two-write envelope and never resends a claimed identity", async () => {
+  const { client, requests } = fixture();
+  const home = await mkdtemp(nodePath.join(tmpdir(), "bebu-group-live-"));
+
+  try {
+    const service = new CategoryGroupService(client, { home });
+    const options = { requestId: "GroupMoveSuccess0001" };
+    const result = await service.move(Input, options);
+    expect(result).toMatchObject({ committed: true, requestId: options.requestId });
+
+    const operation = await new TransactionOperations(client, { home }).operation(
+      options.requestId
+    );
+
+    expect(operation.manifest.intent).toEqual({ action: "move-category", input: Input });
+    expect(operation.state.status).toBe("committed");
+    expect(operation.submission?.body.transaction).toBe("group-move-read-snapshot");
+    expect(operation.submission?.body.writes).toHaveLength(2);
+    expect(requests[0]?.body).toEqual({
+      options: { readWrite: { concurrencyMode: "OPTIMISTIC" } },
+    });
+    await assert.rejects(service.move(Input, options));
+    await assert.rejects(
+      service.move({ ...Input, groupId: "another" }, options),
+      /different payload/u
+    );
+    expect(requests.filter((r) => r.path.endsWith(":commit"))).toHaveLength(1);
+  } finally {
+    await rm(home, { force: true, recursive: true });
+  }
+});
+
+test("group moves reject reverse account links and missing link evidence even with a sparse category", async () => {
+  for (const value of ["source", undefined, 42, "invalid link"]) {
+    const { accounts, client } = fixture();
+    const account = accounts.data.bank;
+    assert.ok(account);
+
+    if (value === undefined) {
+      delete account.linkedCategoryId;
+    } else {
+      account.linkedCategoryId = value;
+    }
+
+    await assert.rejects(
+      new CategoryGroupService(client).move(Input, { dryRun: true }),
+      /account/u
+    );
+  }
+});
+
+test.each([
+  { mode: "conflict", status: "rejected" },
+  { mode: "lost", status: "unknown" },
+  { mode: "incomplete", status: "unknown" },
+])("group move $mode preserves its outcome and forbids replay", async ({ mode, status }) => {
+  const { client, requests, fail } = fixture();
+  const home = await mkdtemp(nodePath.join(tmpdir(), "bebu-group-failure-"));
+
+  try {
+    fail(mode);
+    const service = new CategoryGroupService(client, { home });
+    const options = { requestId: "GroupMoveFailure0001" };
+    await assert.rejects(service.move(Input, options));
+
+    const operation = await new TransactionOperations(client, { home }).operation(
+      options.requestId
+    );
+
+    expect(operation.state.status).toBe(status);
+    await assert.rejects(service.move(Input, options));
+    expect(requests.filter((r) => r.path.endsWith(":commit"))).toHaveLength(1);
+  } finally {
+    await rm(home, { force: true, recursive: true });
+  }
+});
 
 test("group move preview appends after the highest destination order and patches only membership and order", async () => {
   const { client, index, requests } = fixture();
   const before = structuredClone(index);
-  const result = await previewCategoryGroupMove(client, Input);
+  const result = await new CategoryGroupService(client).move(Input, { dryRun: true });
   assert.ok("body" in result);
   expect(result.summary).toMatchObject({
-    executionSupported: false,
+    executionSupported: true,
     groupId: { after: "next", before: "old" },
     order: { after: 6, before: 2 },
   });
@@ -139,7 +269,7 @@ test.each([
   async ({ field, value }) => {
     const { client, index } = fixture();
     index.data.categories.source[field] = value;
-    await assert.rejects(previewCategoryGroupMove(client, Input));
+    await assert.rejects(new CategoryGroupService(client).move(Input, { dryRun: true }));
   }
 );
 
@@ -167,7 +297,7 @@ test("group move preview rejects order collisions, missing orders, overflow, chi
   ]) {
     const f = fixture();
     change(f);
-    await assert.rejects(previewCategoryGroupMove(f.client, Input));
+    await assert.rejects(new CategoryGroupService(f.client).move(Input, { dryRun: true }));
   }
 });
 
@@ -177,17 +307,15 @@ test("group move preview rejects reverse direction and missing group order inste
     const destination = index.data.groups.next;
     assert.ok(destination);
     destination.order = value;
-    await assert.rejects(previewCategoryGroupMove(client, Input));
+    await assert.rejects(new CategoryGroupService(client).move(Input, { dryRun: true }));
   }
 });
 
-test("category group move without dry-run stops before auth or network access", async () => {
+test("category group move requires expected source intent before auth or network access", async () => {
   const result = await captureExecute(createApp(), [
     "categories",
     "move",
     "source",
-    "--from-group",
-    "old",
     "--group",
     "next",
     "--budget",
@@ -196,7 +324,7 @@ test("category group move without dry-run stops before auth or network access", 
   ]);
 
   expect(result.exitCode).not.toBe(0);
-  expect(result.stdout + result.stderr).toContain("lab validation");
+  expect(result.stdout + result.stderr).toContain("from-group");
 });
 
 test("CLI group move preview carries explicit source intent through one isolated read-only snapshot", async () => {
@@ -235,7 +363,7 @@ test("CLI group move preview carries explicit source intent through one isolated
       .object({
         dryRun: z.literal(true),
         summary: z.object({
-          executionSupported: z.literal(false),
+          executionSupported: z.literal(true),
           groupId: z.object({ after: z.string(), before: z.string() }),
         }),
       })
@@ -243,6 +371,28 @@ test("CLI group move preview carries explicit source intent through one isolated
 
     expect(value.summary.groupId).toEqual({ after: "next", before: "old" });
     expect(requests.some((request) => request.path.endsWith(":commit"))).toBe(false);
+
+    const applied = await captureExecute(createApp(), [
+      "categories",
+      "move",
+      "source",
+      "--from-group",
+      "old",
+      "--group",
+      "next",
+      "--budget",
+      "groupMoveLab",
+      "--request-id",
+      "CliGroupMove00000001",
+      "--compact",
+    ]);
+
+    expect(applied.exitCode, applied.stdout + applied.stderr).toBe(0);
+    expect(JSON.parse(applied.stdout)).toMatchObject({
+      committed: true,
+      requestId: "CliGroupMove00000001",
+    });
+    expect(requests.filter((request) => request.path.endsWith(":commit"))).toHaveLength(1);
 
     const rejected = await captureExecute(createApp(), [
       "categories",

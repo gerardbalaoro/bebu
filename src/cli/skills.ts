@@ -72,9 +72,14 @@ Explicit safe orders must remain unambiguous. Attach writes the parent and group
 These operations preserve stored amounts and order but change parent coverage membership. Future funding outcomes are not predicted.
 They do not repair carryover or enable historical transaction edits. Inspect categories list --full after an uncertain outcome.
 Marker-only confirmation cannot prove the requested hierarchy change. Do not blindly retry.
-Cross-group moves, targeted or linked families, deeper trees, group creation, archive, and reordering remain unsupported.
-For a read-only append proposal, use categories move ID --from-group OLD --group NEW --budget BUDGET --dry-run --full.
-It reports executionSupported:false. Live group moves still require native and deployed CLI lab validation.
+Targeted or linked families, deeper trees, group creation, archive, and general reordering remain unsupported.
+For a bounded append move, use categories move ID --from-group OLD --group NEW --budget BUDGET --dry-run --full.
+Both groups must be ordinary, and the destination must be later, nonempty and flat. The source cannot have parents, children, targets or stored account links.
+The complete account index must identify every account with an explicit category link field and exclude source links. Missing link evidence rejects the command.
+Affected peer orders must be explicit and unique. Only the source groupId/order change; sparse settings and all financial records remain untouched.
+Native and deployed CLI lab saves retained their complete original acknowledgments and all other raw document values.
+Live moves use permanent payload-bound request records and one optimistic transaction. Unknown/sending outcomes must never be replayed or replaced.
+Use transactions operation/recover to observe an existing request. Group membership can affect future funding and grouped reports.
 A bounded categories create implementation requires explicit --budget, --group, --name, --icon and --color.
 It supports nonempty flat ordinary groups with explicit safe unique orders and appends after the highest peer order.
 Review --dry-run --full. The new native DEFAULT/ALL category and empty stash are saved atomically without financial writes.

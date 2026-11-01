@@ -143,18 +143,18 @@ evidence. A replacement ID must not conceal an unresolved earlier outcome.
 
 ## Remaining Financial Workflows
 
-| Area                            | Missing Evidence Or Limit                                                                                                                      |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Historical category funding     | Backend producer, preservation rules, past policy/adjustments, and completion signal; a zero residual does not certify correctness             |
-| Legacy financial fields         | Missing allocation flags, link-type fields, versions, and creators remain unknown; explicit null creator support does not clear reconciliation |
-| Allocation-aware category moves | Bounded monitored native category edits verified; CLI allocation guards and broader reversal workflows remain                                  |
-| Genuine account-link conflicts  | No repair or forced account reassignment; only the verified null representation is accepted                                                    |
-| Split changes                   | Bounded two-member native group verified; CLI creation/editing, arbitrary groups, and conflict handling remain unsupported                     |
-| Noneditable refunds             | Ordinary native category handler retains the original record; no alternative reassignment contract established                                 |
-| Other category/group lifecycle  | Group creation, empty groups, cross-group moves, archive, ordering, subtrees, targeted or linked families, and aggregate/coverage settings     |
-| Other target workflows          | Savings, repeating, snoozed, hierarchical, incomplete, unknown-field, and non-native timestamp cases; broader removal subsets                  |
-| Broader reallocation            | Historical propagation, linked/targeted/hierarchical categories, sparse operands, large or trimmed indexes, and undo remain unsupported        |
-| Shared recovery                 | No payload-bound remote receipt or cross-device/crash proof after local-record loss                                                            |
+| Area                            | Missing Evidence Or Limit                                                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Historical category funding     | Backend producer, preservation rules, past policy/adjustments, and completion signal; a zero residual does not certify correctness                            |
+| Legacy financial fields         | Missing allocation flags, link-type fields, versions, and creators remain unknown; explicit null creator support does not clear reconciliation                |
+| Allocation-aware category moves | Bounded monitored native category edits verified; CLI allocation guards and broader reversal workflows remain                                                 |
+| Genuine account-link conflicts  | No repair or forced account reassignment; only the verified null representation is accepted                                                                   |
+| Split changes                   | Bounded two-member native group verified; CLI creation/editing, arbitrary groups, and conflict handling remain unsupported                                    |
+| Noneditable refunds             | Ordinary native category handler retains the original record; no alternative reassignment contract established                                                |
+| Other category/group lifecycle  | Group creation, empty groups, reverse or broader cross-group moves, archive, ordering, subtrees, targeted or linked families, and aggregate/coverage settings |
+| Other target workflows          | Savings, repeating, snoozed, hierarchical, incomplete, unknown-field, and non-native timestamp cases; broader removal subsets                                 |
+| Broader reallocation            | Historical propagation, linked/targeted/hierarchical categories, sparse operands, large or trimmed indexes, and undo remain unsupported                       |
+| Shared recovery                 | No payload-bound remote receipt or cross-device/crash proof after local-record loss                                                                           |
 
 Native bulk category update 52151 does not itself exclude splits or reconciled records. That is not
 a complete sibling or reconciliation persistence contract. Those existing CLI guards remain. Do not
@@ -168,11 +168,13 @@ command creates one ordinary category and an empty stash, with durable request b
 acknowledgment checks. Complete lab comparisons preserved existing financial values. Group creation,
 empty groups, hierarchy, and other lifecycle operations remain outside this subset.
 
-## Group Move Preview
+## Bounded Group Moves
 
-[Category Group Move Preview](category-group-moves.md) describes a read-only append proposal.
-`categories move --dry-run` reports `executionSupported:false`; group-move execution still requires
-matching native and deployed CLI lab validation.
+[Category Group Moves](category-group-moves.md) records native and deployed CLI append validation.
+Use `categories move` with explicit source-group intent and review `--dry-run --full` first. The
+writer patches only group ID and order in one optimistic transaction, with durable request binding
+and original acknowledgment checks. Missing account-link evidence remains a rejection, including
+when the selected category itself has no stored links. Broader lifecycle operations remain guarded.
 
 ## Monitored Native Category Edits
 

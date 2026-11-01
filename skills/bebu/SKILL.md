@@ -61,17 +61,25 @@ group fields; detach deletes the parent field. These operations preserve stored 
 but change parent coverage membership. Future funding outcomes are not predicted. They do not repair
 carryover or enable historical transaction edits. Inspect categories list --full after an uncertain
 outcome. Marker-only confirmation cannot prove the requested hierarchy change. Do not blindly retry.
-Cross-group moves, targeted or linked families, deeper trees, group creation, archive, and
-reordering remain unsupported. For a read-only append proposal, use categories move ID --from-group
-OLD --group NEW --budget BUDGET --dry-run --full. It reports executionSupported:false. Live group
-moves still require native and deployed CLI lab validation. A bounded categories create
-implementation requires explicit --budget, --group, --name, --icon and --color. It supports nonempty
-flat ordinary groups with explicit safe unique orders and appends after the highest peer order.
-Review --dry-run --full. The new native DEFAULT/ALL category and empty stash are saved atomically
-without financial writes. Existing amounts and settings are untouched. No missing financial values
-are supplied. Deployed disposable-lab creation preserved all existing documents and matched the
-original complete acknowledgment. Permanent operation records bind the generated identity and body.
-Use transactions operation/recover after uncertainty; never replay or replace the request.
+Targeted or linked families, deeper trees, group creation, archive, and general reordering remain
+unsupported. For a bounded append move, use categories move ID --from-group OLD --group NEW --budget
+BUDGET --dry-run --full. Both groups must be ordinary, and the destination must be later, nonempty
+and flat. The source cannot have parents, children, targets or stored account links. The complete
+account index must identify every account with an explicit category link field and exclude source
+links. Missing link evidence rejects the command. Affected peer orders must be explicit and unique.
+Only the source groupId/order change; sparse settings and all financial records remain untouched.
+Native and deployed CLI lab saves retained their complete original acknowledgments and all other raw
+document values. Live moves use permanent payload-bound request records and one optimistic
+transaction. Unknown/sending outcomes must never be replayed or replaced. Use transactions
+operation/recover to observe an existing request. Group membership can affect future funding and
+grouped reports. A bounded categories create implementation requires explicit --budget, --group,
+--name, --icon and --color. It supports nonempty flat ordinary groups with explicit safe unique
+orders and appends after the highest peer order. Review --dry-run --full. The new native DEFAULT/ALL
+category and empty stash are saved atomically without financial writes. Existing amounts and
+settings are untouched. No missing financial values are supplied. Deployed disposable-lab creation
+preserved all existing documents and matched the original complete acknowledgment. Permanent
+operation records bind the generated identity and body. Use transactions operation/recover after
+uncertainty; never replay or replace the request.
 
 ## Transaction history
 
@@ -274,7 +282,7 @@ and marker expiry do not authorize replay.
 | `bebu categories detach`      | runnable | Move an ordinary subcategory out of its parent                                              | [commands/categories/detach.md](commands/categories/detach.md)           |
 | `bebu categories funding`     | runnable | Read category funds for one month in integer minor units                                    | [commands/categories/funding.md](commands/categories/funding.md)         |
 | `bebu categories list`        | runnable | List category IDs and types                                                                 | [commands/categories/list.md](commands/categories/list.md)               |
-| `bebu categories move`        | runnable | Preview appending one ordinary category to another group                                    | [commands/categories/move.md](commands/categories/move.md)               |
+| `bebu categories move`        | runnable | Append one ordinary category to a later group                                               | [commands/categories/move.md](commands/categories/move.md)               |
 | `bebu categories rename`      | runnable | Rename one category without changing financial or hierarchy fields                          | [commands/categories/rename.md](commands/categories/rename.md)           |
 | `bebu groups`                 | group    | Read groups and rename supported ordinary groups                                            | [commands/groups.md](commands/groups.md)                                 |
 | `bebu groups list`            | runnable | List group IDs, names, and modification settings                                            | [commands/groups/list.md](commands/groups/list.md)                       |
