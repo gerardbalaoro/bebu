@@ -61,9 +61,10 @@ matched the expected copy with only the selected category's two fields changed. 
 allocations, histories, account balances, links, flags, targets, transactions, and unknown fields
 remained unchanged.
 
-An earlier smooth drag crossed intermediate rows and changed peer order. That experiment is retained
-separately; it is not equivalent to bounded append. A direct source-local drag start, followed by
-one transition to the last destination row, produced the verified append effect.
+An earlier smooth drag committed an intermediate group move before the final move. Both original
+two-write acknowledgments and their complete index versions are retained. That gesture also changed
+peer order and is not equivalent to bounded append. A direct source-local drag start, followed by
+one transition to the last destination row, produced the verified append effect in one save.
 
 In the narrow native layout, use Menu, scroll down, then open Groups and categories. Review native
 ordering effects independently; a general drag path can reorder other categories.
