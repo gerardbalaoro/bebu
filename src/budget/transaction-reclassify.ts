@@ -252,6 +252,16 @@ function completeCategoryStash(doc: FirestoreDocument, id: string, categoryCount
   return { count, data, previews };
 }
 
+function historyMonthAt(dueAt: string, timezone: string) {
+  const calendar = new Intl.DateTimeFormat("en-CA", {
+    month: "2-digit",
+    timeZone: timezone,
+    year: "numeric",
+  }).formatToParts(new Date(dueAt));
+
+  return `${calendar.find((part) => part.type === "year")?.value}-${calendar.find((part) => part.type === "month")?.value}`;
+}
+
 function requireCategoryWriteScope(
   writes: Write[],
   scope: {
@@ -550,13 +560,7 @@ export class ExpenseCategoryService {
         .min(1)
         .parse(DataSchema.parse(user.data.config).timezone);
 
-      const calendar = new Intl.DateTimeFormat("en-CA", {
-        month: "2-digit",
-        timeZone: calculationTimezone,
-        year: "numeric",
-      }).formatToParts(new Date(expense.dueAt));
-
-      const historyMonth = `${calendar.find((part) => part.type === "year")?.value}-${calendar.find((part) => part.type === "month")?.value}`;
+      const historyMonth = historyMonthAt(expense.dueAt, calculationTimezone);
 
       if (historyMonth !== expense.yearMonth) {
         throw new Error(
@@ -674,6 +678,33 @@ export class ExpenseCategoryService {
         !MoneySchema.safeParse(historical).success
       ) {
         throw new Error("Source category spending must be explicitly stored");
+      }
+
+      const destinationSpending = DataSchema.optional().parse(
+        DataSchema.parse(period.data.balances)[input.categoryId]
+      )?.spentAmount;
+
+      const destinationHistory = DataSchema.optional().parse(next.data.historicalSpending)?.[
+        expense.yearMonth
+      ];
+
+      if (
+        !MoneySchema.safeParse(destinationSpending).success ||
+        !MoneySchema.safeParse(destinationHistory).success
+      ) {
+        for (const row of Object.values(next.previews)) {
+          if (
+            row.type === "OUTFLOW" &&
+            historyMonthAt(
+              z.iso.datetime({ offset: true }).parse(row.dueAt),
+              calculationTimezone
+            ) === expense.yearMonth
+          ) {
+            throw new Error(
+              "Destination spending must be explicit when its complete previews already record expenses in this month"
+            );
+          }
+        }
       }
 
       for (const count of [oldCategory.transactionCount, nextCategory.transactionCount]) {

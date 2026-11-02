@@ -891,3 +891,31 @@ test.each([
   );
   expect(requests.some((r) => r.path.endsWith(":commit"))).toBe(false);
 });
+
+test("missing destination spending cannot erase an existing expense in that month", async () => {
+  const { service, docs, requests, preview } = fixture();
+  const stash = docs.get(`${Budget}/stashes/next`);
+  const period = docs.get(`${Budget}/periods/october`);
+  const index = docs.get(`${Budget}/stashes/categories`);
+  assert.ok(stash && period && index);
+  const data = DataSchema.parse(stash.data);
+  data.completedTransactionCount = 1;
+  data.completedTransactions = {
+    ExistingExpense00001: { ...preview, id: "ExistingExpense00001", targetToId: "next" },
+  };
+  data.historicalSpending = {};
+  stash.data = data;
+
+  const next = DataSchema.parse(DataSchema.parse(period.balances).next);
+  delete next.spentAmount;
+  period.balances = { ...DataSchema.parse(period.balances), next };
+
+  const categories = DataSchema.parse(DataSchema.parse(index.data).categories);
+  categories.next = { ...DataSchema.parse(categories.next), transactionCount: 1 };
+  index.data = { ...DataSchema.parse(index.data), categories };
+  await assert.rejects(
+    service.reclassify(Id, { categoryId: "next", fromCategoryId: "old" }, { dryRun: true }),
+    /Destination spending/u
+  );
+  expect(requests.some((r) => r.path.endsWith(":commit"))).toBe(false);
+});

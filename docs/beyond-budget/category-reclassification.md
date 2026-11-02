@@ -55,7 +55,10 @@ currency. Stored month, period and canonical date must agree in the saved budget
 The source category requires an existing matching preview and explicit safe spending and counts.
 Category preview counts must match their complete maps. An untouched destination with explicit zero
 category usage may have its native empty stash shape. Native increment semantics create its first
-count and spending entries; no missing historical balance is reported as zero.
+count and spending entries; no missing historical balance is reported as zero. If complete
+destination previews already contain expenses in the selected month, both period spending and
+monthly history must be explicitly stored. Missing values then reject instead of becoming a new
+spending total.
 
 Reconciliation, creator and legacy allocation/version fields are preserved without participating in
 allocation or account calculations. Malformed consumed fields still reject the operation. All money
