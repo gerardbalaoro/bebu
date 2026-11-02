@@ -38,6 +38,7 @@ const IntentSchema = z.strictObject({
     "delete",
     "reallocate",
     "create-category",
+    "archive-category",
     "move-category",
     "reclassify",
   ]),

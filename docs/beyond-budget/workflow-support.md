@@ -8,6 +8,7 @@ Historical funding changes remain blocked when later saved periods exist.
 
 | Operation                       | Command Or Behavior                                                                           | Boundary                                                                                                  |
 | ------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Category archive                | `categories archive ID --budget BUDGET --month YYYY-MM --dry-run`                             | Current month; childless ordinary category, no target, explicit source links or upcoming references       |
 | Category rename                 | `categories rename ID --name NAME --budget BUDGET --dry-run`                                  | Active DEFAULT category with explicit `modifiable:true`; name only                                        |
 | Ordinary category creation      | `categories create --budget BUDGET --group GROUP --name NAME --icon ICON --color COLOR`       | Nonempty flat ordinary group, explicit unique peer orders and existing style codes                        |
 | Group lookup and rename         | `groups list`; `groups rename ID --name NAME --budget BUDGET --dry-run`                       | Same conservative CLI eligibility; no creation or hierarchy changes                                       |
@@ -103,6 +104,31 @@ documents after synchronization. Attaching a second sibling through the CLI and 
 natively also restored every document and the exact category-index wire fields. The native path
 permits more cases than the CLI. The CLI family, link, graph, and ordering checks define its
 conservative subset.
+
+## Category Archive
+
+Archive retains historical transactions and allocations. It hides the category from the current
+month onward and removes its parent membership. The native observed patch sets `archived:true`,
+stamps `archivedAt` from the client clock, and deletes `parentCategoryId`. An accompanying
+transaction-template stash rewrite was unchanged in the native fixture. The CLI omits it after
+snapshot validation.
+
+Use `categories archive ID --budget BUDGET --month YYYY-MM --dry-run --full` before a live command.
+The month must match the saved user's current timezone month. Only childless, active, modifiable
+DEFAULT categories and groups are supported. Targets and explicit source account links block
+execution. Absent account-link fields remain uninterpreted and unchanged. Category/global upcoming
+previews, templates and canonical references are checked in the same optimistic snapshot. Each
+canonical target-reference query must return fewer than 10,000 records, all explicitly completed
+with matching identities. The command makes no amount calculation or financial-default assignment.
+Review and move remaining funds independently before archiving.
+
+The disposable native fixture retained seven historical expense/funding records, including
+reconciled and split history. Its original acknowledgment covered the three native writes. Full
+comparisons preserved 99 raw documents except the expected category metadata change. All 18
+canonical records, six periods and account records retained their raw values and versions. This is
+native archive evidence, not general deletion or linked/targeted/upcoming archive evidence. The CLI
+submits only the archive metadata and marker through permanent payload-bound transaction operations.
+Unknown acknowledgments retain their original identity and never resend or start a replacement.
 
 ## Category Reallocation
 

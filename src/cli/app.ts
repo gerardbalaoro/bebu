@@ -21,6 +21,7 @@ import { allocationHistory } from "../budget/allocation-history.ts";
 import { allocationReport } from "../budget/allocation-report.ts";
 import { previewSmartAllocation, previewTargetAllocation } from "../budget/auto-allocation.ts";
 import { categoryCarryover } from "../budget/carryover.ts";
+import { CategoryArchiveService } from "../budget/category-archive.ts";
 import { CategoryCreationSchema, CategoryCreationService } from "../budget/category-create.ts";
 import { CategoryGroupService } from "../budget/category-group.ts";
 import { changeCategoryParent } from "../budget/category-hierarchy.ts";
@@ -1088,6 +1089,47 @@ export const createApp = (): AnyCrust => {
         { description: "Read categories and create or change supported ordinary categories" },
         (command) =>
           command
+            .add(
+              defineCommand(
+                "archive",
+                {
+                  description:
+                    "Archive an ordinary category while preserving its financial history",
+                  sections: [
+                    {
+                      body: "Requires an explicit budget and current --month in the saved user timezone. Review --dry-run --full first. Supports childless active modifiable DEFAULT categories and groups, no target or explicit account links, and no canonical, category/global stash upcoming references or templates. Canonical reference queries are snapshot-bound and each must contain fewer than 10000 records. Absent account link fields remain uninterpreted and unchanged. The native metadata patch sets archived:true and the current archivedAt timestamp, and deletes parentCategoryId. Historical transactions, allocations, money and periods are untouched. No funding amount is evaluated or defaulted: independently review and move remaining category funds before archiving. The unchanged native template rewrite is omitted after snapshot validation. Reads and commit share one optimistic transaction. Permanent operations bind the exact archive intent and compiled body before dispatch; an existing request never resends. After uncertainty use transactions operation/recover with the original request ID, never replace or replay it. Archive hides the category from the current month onward; this is not deletion or funding repair. Other category lifecycle workflows remain separate.",
+                      title: "Supported subset",
+                    },
+                  ],
+                },
+                (leaf) =>
+                  leaf
+                    .args(idArg)
+                    .flags(
+                      compactFlag,
+                      fullFlag,
+                      dryRunFlag,
+                      requestFlag,
+                      defineFlag("budget", {
+                        description: "Explicit budget ID",
+                        required: true,
+                        type: "string",
+                      }),
+                      defineFlag("month", {
+                        description: "Current month YYYY-MM in the saved user timezone",
+                        required: true,
+                        type: "string",
+                      })
+                    )
+                    .action(async ({ args, flags, stdout }) => {
+                      const result = await new CategoryArchiveService(
+                        await clientFor(flags.budget)
+                      ).archive({ categoryId: args.id, month: flags.month }, writeOptions(flags));
+
+                      print(stdout, writeResult(result, flags.full), flags.compact);
+                    })
+              )
+            )
             .add(
               defineCommand(
                 "create",

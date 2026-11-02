@@ -4,6 +4,8 @@ Read categories and create or change supported ordinary categories
 
 ## Subcommands
 
+- [`archive`](categories/archive.md) - Archive an ordinary category while preserving its financial
+  history
 - [`attach`](categories/attach.md) - Make an ordinary category a direct subcategory
 - [`carryover`](categories/carryover.md) - Audit stored category carryover across saved months
   without financial writes

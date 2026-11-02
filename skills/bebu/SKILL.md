@@ -81,6 +81,18 @@ preserved all existing documents and matched the original complete acknowledgmen
 operation records bind the generated identity and body. Use transactions operation/recover after
 uncertainty; never replay or replace the request.
 
+For retiring an ordinary category, use categories archive ID --budget BUDGET --month YYYY-MM with
+--dry-run --full. Only the current month in the saved user timezone is supported. Review and move
+remaining funds before archiving; the command does not evaluate funding amounts. Archive requires a
+childless active modifiable DEFAULT category, no target or explicit source account links, and no
+upcoming canonical/stash/template references. Absent account link fields remain uninterpreted and
+unchanged. Historical transactions, allocations, balances and unknown fields remain unchanged. The
+native patch sets archived and archivedAt and deletes parentCategoryId. It omits the unchanged
+template rewrite after snapshot validation. Archive is visibility metadata, not deletion or
+carryover repair. Its live intent and exact body are durably bound before one optimistic commit.
+After uncertainty inspect transactions operation/recover with the original request ID; never resend
+or replace an unknown/sending archive.
+
 ## Transaction history
 
 Legacy transaction reads preserve absent fields without defaults. Inspect diagnostics and
@@ -309,6 +321,7 @@ and marker expiry do not authorize replay.
 | `bebu budget`                  | group    | Read budget diagnostics                                                                     | [commands/budget.md](commands/budget.md)                                   |
 | `bebu budget diagnostics`      | runnable | Read stored account/category links and allocation settings with their source paths          | [commands/budget/diagnostics.md](commands/budget/diagnostics.md)           |
 | `bebu categories`              | group    | Read categories and create or change supported ordinary categories                          | [commands/categories.md](commands/categories.md)                           |
+| `bebu categories archive`      | runnable | Archive an ordinary category while preserving its financial history                         | [commands/categories/archive.md](commands/categories/archive.md)           |
 | `bebu categories attach`       | runnable | Make an ordinary category a direct subcategory                                              | [commands/categories/attach.md](commands/categories/attach.md)             |
 | `bebu categories carryover`    | runnable | Audit stored category carryover across saved months without financial writes                | [commands/categories/carryover.md](commands/categories/carryover.md)       |
 | `bebu categories create`       | runnable | Create one ordinary category and its empty stash atomically                                 | [commands/categories/create.md](commands/categories/create.md)             |
