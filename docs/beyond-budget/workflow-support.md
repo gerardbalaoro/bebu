@@ -204,3 +204,13 @@ An imported positive card refund with explicit editable:true differs from a nati
 The existing CLI category-update path preserves its sign and editability. A focused regression
 verifies unchanged account money, reserves, and flags. Historical funding guards remain, and no
 positive-refund native runtime workflow is claimed.
+
+## Raw Category Attribution
+
+`transactions reclassify` is a separate category-only writer for completed expenses and posted
+refunds. It retains raw legacy fields, reconciliation, complete split siblings, recurrence and known
+debt references. Canonical masks contain only `targetTo.id`; a runtime write allowlist restricts all
+other changes to category spending, counts, previews and activity stamps. Account balances,
+reserves, funding and root history receive no writes. General update/delete guards remain unchanged.
+Read [Category Reclassification](category-reclassification.md) for eligibility, lab evidence and
+required after-action checks. Historical backend completion still has no terminal receipt.

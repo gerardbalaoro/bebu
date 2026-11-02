@@ -44,6 +44,7 @@ import {
   TransactionDeleteSchema,
 } from "../budget/transaction-model.ts";
 import { TransactionOperationError } from "../budget/transaction-operations.ts";
+import { ExpenseCategoryService } from "../budget/transaction-reclassify.ts";
 import { TransactionService } from "../budget/transactions.ts";
 import { BeyondClient } from "../firestore/client.ts";
 import type { CommitOptions, CommitResult, Data } from "../firestore/encoding.ts";
@@ -360,6 +361,56 @@ const transactionsCommand = defineCommand(
     command
       .add(transactionRecoveryCommand("operation"))
       .add(transactionRecoveryCommand("recover"))
+      .add(
+        defineCommand(
+          "reclassify",
+          {
+            description:
+              "Move one completed expense to another category while preserving its stored fields",
+            sections: [
+              {
+                body: "Use explicit --budget, --from-category and --category with --dry-run --full first. This separate workflow patches only targetTo.id on the canonical transaction. It transfers signed spending, category usage counts and the existing raw category preview; existing shared previews change only targetToId. Account money, payment reserve, funding, allocation history, reconciliation, creator, version, missing fields and other transaction data are never rebuilt. Completed savings/card records require complete source/destination category caches and explicit safe source spending. Purchases must be editable and negative. Posted REFUND records are positive; category attribution preserves the original editable flag, including false. Complete same-account/date splits of 2–20 negative expenses without a canonical parent can move one selected child while all siblings stay unchanged. Stale preview dates are corrected from the unchanged canonical timestamp and listed in correctedPreviewFields. Existing legacy fields can stay absent or null because the workflow does not interpret them. Completed recurring occurrences preserve schedule and clone links. Known DEBT references are validated and retained without debt writes. Locked non-refund records, incomplete or mixed splits, other extras and explicitly linked destination categories remain unsupported. Missing category/account link fields remain uninterpreted; explicit conflicts reject. Historical direct category effects can be saved under this bounded contract; later carryover remains a backend operation with no terminal completion receipt. propagationVerified:false is intentional. Review all accounts and later saved periods after each historical operation; do not batch uncertain changes or claim category-envelope restoration. General update/delete historical and financial guards remain unchanged. Live requests use one optimistic transaction and permanent payload-bound ownership. transactions operation/recover observes only; never replay or replace a sending/unknown request.",
+                title: "Category-only workflow",
+              },
+            ],
+          },
+          (leaf) =>
+            leaf
+              .args(idArg)
+              .flags(
+                compactFlag,
+                fullFlag,
+                dryRunFlag,
+                requestFlag,
+                defineFlag("budget", {
+                  description: "Explicit budget ID",
+                  required: true,
+                  type: "string",
+                }),
+                defineFlag("from-category", {
+                  description: "Expected current category ID",
+                  required: true,
+                  type: "string",
+                }),
+                defineFlag("category", {
+                  description: "Approved destination category ID",
+                  required: true,
+                  type: "string",
+                })
+              )
+              .action(async ({ args, flags, stdout }) => {
+                const result = await new ExpenseCategoryService(
+                  await clientFor(flags.budget)
+                ).reclassify(
+                  args.id,
+                  { categoryId: flags.category, fromCategoryId: flags["from-category"] },
+                  writeOptions(flags)
+                );
+
+                print(stdout, writeResult(result, flags.full), flags.compact);
+              })
+        )
+      )
       .add(
         defineCommand(
           "list",

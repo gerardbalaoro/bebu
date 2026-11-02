@@ -11,6 +11,8 @@ Read history and edit expenses, income, and upcoming recurring payments
 - [`list`](transactions/list.md) - Read the complete history, including older records absent from
   the app cache
 - [`operation`](transactions/operation.md) - Inspect a durable local transaction operation
+- [`reclassify`](transactions/reclassify.md) - Move one completed expense to another category while
+  preserving its stored fields
 - [`recover`](transactions/recover.md) - Observe a saved transaction request without resending
   financial writes
 - [`show`](transactions/show.md) - Read a complete transaction record

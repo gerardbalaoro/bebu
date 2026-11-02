@@ -68,6 +68,11 @@ Canonical transactions contain more history than trimmed stash previews or brows
 Transaction writes also maintain indexes, counters, and historical amounts. The canonical document
 alone is not a complete write set.
 
+For a category-only migration that preserves raw legacy fields, use
+[Category Reclassification](category-reclassification.md). This bounded net writer has separate
+eligibility and observed-state checks. General transaction update and historical funding guards
+remain unchanged.
+
 Account `linkedCategoryId` and category `linkedAccountIds` describe opposite sides of a link.
 Allocation history map keys and stored IDs can differ. Empty `extras` does not exclude automatic
 allocation. History source determines the meaning of its amount fields.

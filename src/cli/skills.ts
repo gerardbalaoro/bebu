@@ -102,6 +102,22 @@ A narrow legacy card representation permits explicit null link type and version 
 This preserves saved targets and does not repair links. All other allocation, split, editability, and historical funding guards remain.
 
 
+## Category-only migration
+
+For one completed expense, use transactions reclassify with explicit --budget, --from-category and --category.
+Read [Category Reclassification](../../docs/beyond-budget/category-reclassification.md) before using it.
+This separate writer patches only the canonical category ID and transfers existing raw previews, counts and spending.
+It preserves absent fields, versions, creator and reconciliation without rebuilding a native transaction model.
+Account money, reserves, funding and allocation history receive no direct writes.
+Preview --dry-run --full and verify account balances and saved periods after each historical action.
+Historical carryover has no terminal receipt; propagationVerified:false is intentional.
+General update/delete guards remain. Posted positive REFUND attribution preserves its original editable flag, including false.
+Complete 2–20-member same-account/date expense splits retain every sibling. Completed recurrence and known debt references stay unchanged.
+Locked non-refund records, mixed/incomplete splits, other extras and explicitly linked destination categories stay outside this subset.
+Missing category/account link fields remain uninterpreted; explicit conflicting destinations reject. No link repair or financial defaults are supplied.
+Original validated acknowledgments are retained with their submitted-body hash in permanent transaction operations.
+Recovery still observes only and never infers a committed state from a marker or current values.
+
 ## Allocation requests
 
 For a target funding preview, use allocations preview with an explicit month.

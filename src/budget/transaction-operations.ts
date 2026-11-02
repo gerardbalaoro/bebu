@@ -32,7 +32,15 @@ const RequestIdSchema = z
   .regex(/^[A-Za-z0-9]{20}$/u, "request-id must contain exactly 20 letters or digits");
 
 const IntentSchema = z.strictObject({
-  action: z.enum(["create", "update", "delete", "reallocate", "create-category", "move-category"]),
+  action: z.enum([
+    "create",
+    "update",
+    "delete",
+    "reallocate",
+    "create-category",
+    "move-category",
+    "reclassify",
+  ]),
   input: DataSchema,
   transactionId: z.string().optional(),
 });
@@ -180,7 +188,29 @@ export class TransactionOperations {
         throw new Error("Corrupt transaction submission");
       }
 
-      return { manifest, state, submission };
+      let acknowledgment:
+        | { submissionHash: string; response: z.infer<typeof CommitResponseSchema> }
+        | undefined;
+
+      try {
+        acknowledgment = z
+          .strictObject({ response: CommitResponseSchema, submissionHash: z.string() })
+          .parse(JSON.parse(await readFile(nodePath.join(path, "acknowledgment.json"), "utf-8")));
+
+        if (
+          submission === undefined ||
+          acknowledgment.submissionHash !== submission.hash ||
+          acknowledgment.response.writeResults.length !== submission.body.writes.length
+        ) {
+          throw new Error("Acknowledgment does not match the original transaction submission");
+        }
+      } catch (error) {
+        if (!z.object({ code: z.literal("ENOENT") }).safeParse(error).success) {
+          throw error;
+        }
+      }
+
+      return { acknowledgment, manifest, state, submission };
     } catch (error) {
       throw new Error(
         "Transaction operation is missing, incomplete, or corrupt; never resubmit this request",
@@ -427,6 +457,10 @@ export class TransactionOperations {
       }
 
       acknowledged = response.commitTime;
+      await saveAllocationFile(nodePath.join(this.path(requestId), "acknowledgment.json"), {
+        response,
+        submissionHash: allocationHash(body),
+      });
       await this.save(requestId, { commitTime: acknowledged, status: "committed" });
 
       return { commitTime: acknowledged, committed: true, requestId, writes: writes.length };
