@@ -175,8 +175,12 @@ That evidence defines bounded native cases; it does not enable CLI execution thr
 For an explicitly authorized native bulk category action, read [Native Bulk Category Edits](../../docs/beyond-budget/native-bulk-category-edits.md).
 Verified subsets cover one complete known split child and one complete reconciled ordinary expense with an explicit null reconciliation timestamp.
 Both retained original acknowledgments and preserved account money, explicit flags, saved links, and funding/history.
-The split sibling remained raw-identical. Missing fields, unknown creators, genuine link conflicts, positive refunds, other reconciliation shapes, and trimmed-preview hydration remain unverified.
-No CLI split or reconciliation guard is removed. Never submit a partial group editor or infer missing financial values.
+The split sibling remained raw-identical. Further native evidence covers a complete reconciled SAVINGS split child and an ordinary reconciled card expense, both with explicit null timestamps.
+A complete ordinary SAVINGS expense also preserved its explicit saved link despite an explicit different current reciprocal account link.
+Known creators can renew a null email to the same signed-in creator's email. Other creator fields must remain unchanged.
+Older children absent from global previews used the filtered search-results Bulk update entry. Group-editor hydration remains unproved.
+Read the exact fixture restrictions before execution. Missing fields, unknown creators, absent account links, positive refunds, and other reconciliation or split shapes remain unverified.
+No CLI split, reconciliation, or link-conflict guard is removed. Never submit a partial group editor or infer missing financial values.
 Expense categories linked to other accounts still require the native app.
 These effects do not allocate category funds. Historical dueAt timestamps remain intact; completed entries need a saved period.
 An uncleared expense or refund changes only the uncleared account balance. Clearing moves it into the cleared balance and account history.

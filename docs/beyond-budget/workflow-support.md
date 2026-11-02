@@ -186,9 +186,15 @@ Both saves preserved account money and explicit financial flags and links.
 [Native Bulk Category Edits](native-bulk-category-edits.md) records verified single-child split and
 complete reconciled-expense subsets. Both retained complete original acknowledgments and preserved
 account money, explicit flags, saved links, and existing funding/history. The split sibling remained
-raw-identical. The reconciled fixture retained its explicit null timestamp. Trimmed-preview
-hydration, missing financial fields, unknown creators, genuine link conflicts, positive refunds, and
-broader reconciliation shapes remain unverified. No CLI split or reconciliation guard is removed.
+raw-identical. Further native fixtures cover a reconciled SAVINGS split child and an ordinary
+reconciled card expense with explicit null timestamps. A complete ordinary SAVINGS expense also
+preserved its explicit saved link despite an explicit different current reciprocal account link. All
+retained original acknowledgments and full raw-state comparisons. Known creator email renewal is
+explicit in the guide. Older children used the filtered search-results Bulk update entry.
+
+Missing financial fields, unknown creators, absent account links, positive refunds, non-null
+reconciliation timestamps, and other split shapes remain unverified. The group-editor hydration
+cause remains unproved. No CLI split, reconciliation, or link-conflict guard is removed.
 
 These findings support matching individually monitored native actions under explicit user
 authorization. They do not enable CLI execution through existing historical, allocation, or split
