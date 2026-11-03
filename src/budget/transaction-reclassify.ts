@@ -222,7 +222,12 @@ function storedPreview(doc: FirestoreDocument, id: string): WireValue | undefine
     .parse(DataSchema.parse(DataSchema.parse(bucket).mapValue).fields ?? {})[id];
 }
 
-function completeCategoryStash(doc: FirestoreDocument, id: string, categoryCount: number) {
+function completeCategoryStash(
+  doc: FirestoreDocument,
+  id: string,
+  categoryCount: number,
+  verifiedExcessCount = false
+) {
   const data = DataSchema.parse(doc.data.data);
   const previews = z.record(z.string(), DataSchema).parse(data.completedTransactions ?? {});
 
@@ -242,7 +247,7 @@ function completeCategoryStash(doc: FirestoreDocument, id: string, categoryCount
       ? categoryCount !== 0 ||
         Object.keys(previews).length !== 0 ||
         data.historicalSpending !== undefined
-      : count !== Object.keys(previews).length)
+      : count !== Object.keys(previews).length && !verifiedExcessCount)
   ) {
     throw new Error(
       "Category reassignment requires complete category previews and explicit matching counts"
@@ -250,6 +255,76 @@ function completeCategoryStash(doc: FirestoreDocument, id: string, categoryCount
   }
 
   return { count, data, previews };
+}
+
+async function verifyDestinationCountOffset(
+  snapshot: FirestoreTransaction,
+  doc: FirestoreDocument,
+  id: string,
+  categoryCount: number,
+  budgetId: string
+) {
+  const data = DataSchema.parse(doc.data.data);
+  const previews = z.record(z.string(), DataSchema).parse(data.completedTransactions ?? {});
+  const count = data.completedTransactionCount;
+
+  if (
+    doc.data.id !== id ||
+    doc.data.type !== "CATEGORY" ||
+    doc.data.trimmed === true ||
+    !Number.isSafeInteger(count) ||
+    count !== Object.keys(previews).length + 1 ||
+    count !== categoryCount
+  ) {
+    return false;
+  }
+
+  const limit = 10_000;
+  const incoming = await snapshot.query("transactions", "targetTo.id", id, limit);
+  const outgoing = await snapshot.query("transactions", "targetFrom.id", id, limit);
+
+  if (incoming.length >= limit || outgoing.length >= limit) {
+    return false;
+  }
+
+  const records = new Map([...incoming, ...outgoing].map((row) => [row.name, row]));
+
+  if (records.size !== Object.keys(previews).length) {
+    return false;
+  }
+
+  for (const row of records.values()) {
+    const transaction = DataSchema.parse(row.data);
+    const transactionId = z.string().parse(transaction.id);
+    const preview = previews[transactionId];
+    const from = DataSchema.safeParse(transaction.targetFrom);
+    const to = DataSchema.safeParse(transaction.targetTo);
+
+    if (
+      !row.name.endsWith(`/transactions/${transactionId}`) ||
+      !preview ||
+      transaction.budgetId !== budgetId ||
+      !MoneySchema.safeParse(transaction.amount).success ||
+      !z.string().safeParse(transaction.type).success ||
+      !z.boolean().safeParse(transaction.cleared).success ||
+      transaction.completed !== true ||
+      preview.completed !== true ||
+      !from.success ||
+      !to.success ||
+      preview.id !== transactionId ||
+      (from.data.id === id && from.data.type !== "CATEGORY") ||
+      (to.data.id === id && to.data.type !== "CATEGORY") ||
+      preview.targetFromId !== from.data.id ||
+      preview.targetToId !== to.data.id ||
+      preview.type !== transaction.type ||
+      preview.amount !== transaction.amount ||
+      preview.cleared !== transaction.cleared
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function historyMonthAt(dueAt: string, timezone: string) {
@@ -604,10 +679,19 @@ export class ExpenseCategoryService {
         oldCategory.transactionCount
       );
 
+      const destinationCountOffset = await verifyDestinationCountOffset(
+        snapshot,
+        nextStash,
+        input.categoryId,
+        nextCategory.transactionCount,
+        this.client.budgetId
+      );
+
       const next = completeCategoryStash(
         nextStash,
         input.categoryId,
-        nextCategory.transactionCount
+        nextCategory.transactionCount,
+        destinationCountOffset
       );
 
       const preview = old.previews[id];
@@ -687,6 +771,16 @@ export class ExpenseCategoryService {
       const destinationHistory = DataSchema.optional().parse(next.data.historicalSpending)?.[
         expense.yearMonth
       ];
+
+      if (
+        destinationCountOffset &&
+        (!MoneySchema.safeParse(destinationSpending).success ||
+          !MoneySchema.safeParse(destinationHistory).success)
+      ) {
+        throw new Error(
+          "A destination with an excess count requires explicit spending in the saved period and history"
+        );
+      }
 
       if (
         !MoneySchema.safeParse(destinationSpending).success ||
@@ -815,6 +909,7 @@ export class ExpenseCategoryService {
         canonicalFields: ["targetTo.id"],
         categoryId: input.categoryId,
         correctedPreviewFields: [...correctedPreviewFields],
+        destinationCountOffset: destinationCountOffset ? 1 : 0,
         fromCategoryId: input.fromCategoryId,
         fundingChanges: [],
         historyMonth,

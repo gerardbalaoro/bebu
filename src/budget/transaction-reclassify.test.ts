@@ -267,12 +267,30 @@ function fixture() {
     if (path.endsWith(":runQuery")) {
       const query = DataSchema.parse(body.structuredQuery);
       const filter = DataSchema.parse(DataSchema.parse(query.where).fieldFilter);
-      expect(DataSchema.parse(filter.field).fieldPath).toBe("splitId");
-      const splitId = DataSchema.parse(filter.value).stringValue;
+      const field = z.string().parse(DataSchema.parse(filter.field).fieldPath);
+      const value = DataSchema.parse(filter.value).stringValue;
 
       return Response.json(
         [...docs]
-          .filter(([name, data]) => name.includes("/transactions/") && data.splitId === splitId)
+          .filter(([name, data]) => {
+            if (!name.includes("/transactions/")) {
+              return false;
+            }
+
+            if (field === "splitId") {
+              return data.splitId === value;
+            }
+
+            if (field === "targetTo.id" || field === "targetFrom.id") {
+              const target = DataSchema.safeParse(
+                field === "targetTo.id" ? data.targetTo : data.targetFrom
+              );
+
+              return target.success && target.data.id === value;
+            }
+
+            throw new Error(`Unexpected query field ${field}`);
+          })
           .slice(0, z.number().parse(query.limit))
           .map(([name, data]) => ({
             document: { fields: encodeFields(data), name, updateTime: Time },
@@ -329,6 +347,114 @@ function fixture() {
     transaction,
   };
 }
+
+function excessDestinationFixture() {
+  const result = fixture();
+  const { docs, transaction, preview } = result;
+  const other = "DestinationExpense01";
+  docs.set(`${Budget}/transactions/${other}`, {
+    ...structuredClone(transaction),
+    id: other,
+    targetTo: { id: "next", linkedObjectId: null, linkedObjectType: null, type: "CATEGORY" },
+  });
+  const destination = docs.get(`${Budget}/stashes/next`);
+  assert.ok(destination);
+  destination.data = {
+    completedTransactionCount: 2,
+    completedTransactions: {
+      [other]: { ...structuredClone(preview), id: other, targetToId: "next" },
+    },
+    historicalSpending: { "2026-10": 250 },
+  };
+  const index = docs.get(`${Budget}/stashes/categories`);
+  assert.ok(index);
+  const categories = DataSchema.parse(DataSchema.parse(index.data).categories);
+  index.data = {
+    categories: {
+      ...categories,
+      next: { ...DataSchema.parse(categories.next), transactionCount: 2 },
+    },
+  };
+
+  return result;
+}
+
+test("a destination with one excess count retains its discrepancy only when every preview matches a completed transaction", async () => {
+  const { service } = excessDestinationFixture();
+
+  const result = await service.reclassify(
+    Id,
+    { categoryId: "next", fromCategoryId: "old" },
+    { dryRun: true }
+  );
+
+  assert.ok("body" in result);
+  expect(result.summary.destinationCountOffset).toBe(1);
+  const write = result.body.writes.find((w) => w.update?.name === `${Budget}/stashes/next`);
+  expect(write?.updateTransforms).toContainEqual({
+    fieldPath: "data.completedTransactionCount",
+    increment: { integerValue: "1" },
+  });
+});
+
+test.each([
+  "missing transaction",
+  "missing preview",
+  "stale amount",
+  "counter disagreement",
+  "trimmed stash",
+  "missing period spending",
+])("rejects excess destination count with %s", async (problem) => {
+  const { service, docs } = excessDestinationFixture();
+  const stash = docs.get(`${Budget}/stashes/next`);
+  const index = docs.get(`${Budget}/stashes/categories`);
+  const period = docs.get(`${Budget}/periods/october`);
+  assert.ok(stash && index && period);
+  const data = DataSchema.parse(stash.data);
+  const previews = DataSchema.parse(data.completedTransactions);
+
+  if (problem === "missing transaction") {
+    docs.delete(`${Budget}/transactions/DestinationExpense01`);
+  }
+
+  if (problem === "missing preview") {
+    docs.set(`${Budget}/transactions/Unpreviewed`, {
+      ...docs.get(`${Budget}/transactions/DestinationExpense01`),
+      id: "Unpreviewed",
+    });
+  }
+
+  if (problem === "stale amount") {
+    previews.DestinationExpense01 = {
+      ...DataSchema.parse(previews.DestinationExpense01),
+      amount: -251,
+    };
+    stash.data = { ...data, completedTransactions: previews };
+  }
+
+  if (problem === "counter disagreement") {
+    const categories = DataSchema.parse(DataSchema.parse(index.data).categories);
+    index.data = {
+      categories: {
+        ...categories,
+        next: { ...DataSchema.parse(categories.next), transactionCount: 3 },
+      },
+    };
+  }
+
+  if (problem === "trimmed stash") {
+    stash.trimmed = true;
+  }
+
+  if (problem === "missing period spending") {
+    const balances = DataSchema.parse(period.balances);
+    period.balances = { ...balances, next: {} };
+  }
+
+  await assert.rejects(
+    service.reclassify(Id, { categoryId: "next", fromCategoryId: "old" }, { dryRun: true })
+  );
+});
 
 test("a historical category move preserves an omitted income flag instead of rebuilding its model", async () => {
   const { service, requests, transaction } = fixture();

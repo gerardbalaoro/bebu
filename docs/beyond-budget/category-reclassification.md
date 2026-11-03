@@ -53,12 +53,15 @@ unchanged. Saved account links are never rebuilt or repaired. The account must u
 currency. Stored month, period and canonical date must agree in the saved budget timezone.
 
 The source category requires an existing matching preview and explicit safe spending and counts.
-Category preview counts must match their complete maps. An untouched destination with explicit zero
-category usage may have its native empty stash shape. Native increment semantics create its first
-count and spending entries; no missing historical balance is reported as zero. If complete
-destination previews already contain expenses in the selected month, both period spending and
-monthly history must be explicitly stored. Missing values then reject instead of becoming a new
-spending total.
+Source preview counts must match their complete maps. A destination may have one extra count when
+both stored counters agree, transaction-bound queries match every completed preview, and its period
+and history spending are explicit. The move preserves the existing one-count difference. Queries at
+the 10,000-record limit, missing transactions, upcoming references, and mismatched previews reject
+this exception. An untouched destination with explicit zero category usage may have its native empty
+stash shape. Native increment semantics create its first count and spending entries; no missing
+historical balance is reported as zero. If complete destination previews already contain expenses in
+the selected month, both period spending and monthly history must be explicitly stored. Missing
+values then reject instead of becoming a new spending total.
 
 Reconciliation, creator and legacy allocation/version fields are preserved without participating in
 allocation or account calculations. Malformed consumed fields still reject the operation. All money

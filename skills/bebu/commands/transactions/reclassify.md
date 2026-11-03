@@ -9,13 +9,15 @@ workflow patches only targetTo.id on the canonical transaction. It transfers sig
 category usage counts and the existing raw category preview; existing shared previews change only
 targetToId. Account money, payment reserve, funding, allocation history, reconciliation, creator,
 version, missing fields and other transaction data are never rebuilt. Completed savings/card records
-require complete source/destination category caches and explicit safe source spending. Purchases
-must be editable and negative. Posted REFUND records are positive; category attribution preserves
-the original editable flag, including false. Complete same-account/date splits of 2–20 negative
-expenses without a canonical parent can move one selected child while all siblings stay unchanged.
-Stale preview dates are corrected from the unchanged canonical timestamp and listed in
-correctedPreviewFields. Existing legacy fields can stay absent or null because the workflow does not
-interpret them. Completed recurring occurrences preserve schedule and clone links. Known DEBT
+require complete source/destination category caches and explicit safe source spending. A destination
+with one excess count is supported only when both counters agree, transaction-bound queries match
+every completed preview, and period and history spending are explicit; the existing difference
+remains. Purchases must be editable and negative. Posted REFUND records are positive; category
+attribution preserves the original editable flag, including false. Complete same-account/date splits
+of 2–20 negative expenses without a canonical parent can move one selected child while all siblings
+stay unchanged. Stale preview dates are corrected from the unchanged canonical timestamp and listed
+in correctedPreviewFields. Existing legacy fields can stay absent or null because the workflow does
+not interpret them. Completed recurring occurrences preserve schedule and clone links. Known DEBT
 references are validated and retained without debt writes. Locked non-refund records, incomplete or
 mixed splits, other extras and explicitly linked destination categories remain unsupported. Missing
 category/account link fields remain uninterpreted; explicit conflicts reject. Historical direct
