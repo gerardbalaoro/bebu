@@ -14,6 +14,43 @@ export class BrowserSetupError extends Error {
 export const profilePath = (): string =>
   nodePath.join(nodePath.dirname(sessionPath()), "browser-profile");
 
+const existingFile = async (name: string) => {
+  try {
+    return await lstat(name);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+};
+
+export const browserProfileStatus = async () => {
+  const path = profilePath();
+
+  const [info, lock] = await Promise.all([existingFile(path), existingFile(`${path}.lock`)]);
+  let state: "missing" | "owned" | "unrecognized" = "missing";
+
+  if (info !== null) {
+    state = "unrecognized";
+
+    if (info.isDirectory() && !info.isSymbolicLink()) {
+      try {
+        if ((await readFile(nodePath.join(path, ownershipFile), "utf-8")) === profileSignature) {
+          state = "owned";
+        }
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  return { locked: lock !== null, path, state };
+};
+
 const ensureOwnedProfile = async (profile: string): Promise<void> => {
   await mkdir(profile, { mode: 0o700, recursive: true });
   const info = await lstat(profile);

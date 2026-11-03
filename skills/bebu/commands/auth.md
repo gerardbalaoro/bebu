@@ -7,7 +7,7 @@ Sign in through your browser and manage the saved connection
 - [`login`](auth/login.md) - Connect through your Chrome session. If necessary, wait for sign-in
 - [`logout`](auth/logout.md) - Delete local credentials and the separate bebu profile. Your Chrome
   profile stays intact
-- [`status`](auth/status.md) - Show saved connection state as JSON
+- [`status`](auth/status.md) - Show saved connection and browser profile state as JSON
 
 ---
 

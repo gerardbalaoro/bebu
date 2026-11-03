@@ -5,7 +5,32 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { profilePath, withBrowserProfile } from "./browser.ts";
-import { logout } from "./login.ts";
+import { authStatus, logout } from "./login.ts";
+
+test("status locates the saved profile and reports an active profile lock while signed out", async () => {
+  const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-status-"));
+  const previous = process.env.BEBU_SESSION_FILE;
+  process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+
+  try {
+    const initial = await authStatus();
+    expect(initial.profile).toEqual({ locked: false, path: profilePath(), state: "missing" });
+    await withBrowserProfile(async () => {
+      const active = await authStatus();
+      expect(active.profile).toEqual({ locked: true, path: profilePath(), state: "owned" });
+    });
+    const released = await authStatus();
+    expect(released.profile.locked).toBe(false);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.BEBU_SESSION_FILE;
+    } else {
+      process.env.BEBU_SESSION_FILE = previous;
+    }
+
+    await rm(directory, { force: true, recursive: true });
+  }
+});
 
 test("logout clears owned browser credentials while preserving other configuration files", async () => {
   const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-logout-"));
@@ -41,6 +66,8 @@ test("login and logout refuse a browser profile that bebu does not own", async (
   try {
     await mkdir(profilePath());
     await writeFile(nodePath.join(profilePath(), "existing-data"), "preserve");
+    const status = await authStatus();
+    expect(status.profile.state).toBe("unrecognized");
     await assert.rejects(
       withBrowserProfile(async () => await Promise.resolve("unexpected")),
       /does not own/u

@@ -7,7 +7,12 @@ import { z } from "zod";
 
 import { BeyondClient } from "../firestore/client.ts";
 import type { Fetcher } from "../firestore/client.ts";
-import { BrowserSetupError, removeBrowserProfile, withBrowserProfile } from "./browser.ts";
+import {
+  browserProfileStatus,
+  BrowserSetupError,
+  removeBrowserProfile,
+  withBrowserProfile,
+} from "./browser.ts";
 import { connectBrowser, launchBrowser, systemBrowserPath } from "./launcher.ts";
 import { browserExpression, ORIGIN, SessionSchema, saveSession, sessionPath } from "./session.ts";
 import type { Session } from "./session.ts";
@@ -322,12 +327,13 @@ export const login = async (
 };
 
 export const authStatus = async () => {
+  const profile = await browserProfileStatus();
   let session: Session;
 
   try {
     session = SessionSchema.parse(JSON.parse(await readFile(sessionPath(), "utf-8")));
   } catch {
-    return { authenticated: false, state: "signed-out" as const };
+    return { authenticated: false, profile, state: "signed-out" as const };
   }
 
   const expired =
@@ -337,6 +343,7 @@ export const authStatus = async () => {
   return {
     authenticated: !expired,
     expiresAt: new Date(session.expiresAt).toISOString(),
+    profile,
     renewable: session.source?.kind === "browser-profile" || session.source?.kind === "browser-cdp",
     selectedBudgetId: session.selectedBudgetId,
     selectedBudgetName: session.selectedBudgetName,
