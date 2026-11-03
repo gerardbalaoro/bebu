@@ -12,6 +12,7 @@ import { help } from "@crustjs/extensions";
 import { z } from "zod";
 
 import metadata from "../../package.json" with { type: "json" };
+import { browserCommand } from "../auth/browser-command.ts";
 import { authCommand, sessionCommand } from "../auth/commands.ts";
 import { AuthError } from "../auth/login.ts";
 import { loadSession } from "../auth/session.ts";
@@ -144,8 +145,9 @@ const errorOutput = defineExtension(defineExtensionId("bebu.error-output")).onEr
     }
 
     const loginError =
-      (commandPath.at(-2) === "auth" && commandPath.at(-1) === "login") ||
-      (argv[0] === "auth" && argv[1] === "login");
+      (argv[0] === "auth" && !["status", "whoami", "logout"].includes(argv[1] ?? "")) ||
+      commandPath.at(-1) === "auth" ||
+      (commandPath.at(-2) === "auth" && commandPath.at(-1) === "login");
 
     let message = error instanceof Error ? errorMessage(error) : "Command failed";
 
@@ -1058,7 +1060,7 @@ export const createApp = (): AnyCrust => {
         title: "Install or run once",
       },
       {
-        body: "Run bebu auth login.\n\nTo reuse your Chrome session (Chrome 144+):\n1. Enable chrome://inspect/#remote-debugging.\n2. Approve the connection prompt.\n3. If the app requires sign-in, sign in.\n4. Open your budget.\n\nbebu opens a separate app window in your Chrome profile. It closes that window after login. Your other tabs stay open.\n\nFor a separate saved browser profile, use auth login --fresh.\n\nThe auth status command shows the connection state. The auth logout command deletes local credentials and the separate bebu profile. Your Chrome profile stays intact.\n\nData commands use direct requests to Firestore. The session import and session prepare commands can reuse an agent browser.\n\nBEBU_HOME selects the bebu data folder. BEBU_BROWSER selects the browser executable for the separate profile.",
+        body: "Set BEBU_USERNAME and BEBU_PASSWORD in .env beside .env.schema, or export them. Run bebu auth to open a visible Patchright browser. Both configured credentials are entered and submitted automatically. Without credentials, sign in manually. bebu detects completion and validates budget access. Use --headless only when a visible window is not needed.\n\nRun bebu browser to keep a headless managed browser running in the foreground. It prints JSON with a loopback CDP endpoint. Connect available browser tooling to that endpoint. Use --headed to show its window, browser status to read its endpoint, and browser stop to close it.\n\nAuth attaches to a running managed browser and closes only its own tab. For visible sign-in, start bebu browser --headed, or stop a running headless browser before bebu auth. The session import command can also capture a named agent-browser session.\n\nAuth status reads saved expiry without renewal. Data commands renew expired browser credentials automatically. Auth logout deletes local credentials and the managed profile; stop bebu browser first.\n\nBEBU_HOME selects the bebu data folder. Data commands use direct Firestore requests. Credentials are entered only on the Beyond Budget origin. Keep .env private. CDP grants full browser access and is bound to loopback.",
         title: "Browser session",
       },
       {
@@ -1075,6 +1077,7 @@ export const createApp = (): AnyCrust => {
   })
     .extend(help(), errorOutput)
     .add(
+      browserCommand,
       authCommand,
       sessionCommand,
       accountsCommand,

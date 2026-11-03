@@ -2,7 +2,7 @@
 import { readFile, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type { Browser, ConnectOptions, Page } from "puppeteer-core";
+import type { BrowserContext, Page } from "patchright";
 import { z } from "zod";
 
 import { BeyondClient } from "../firestore/client.ts";
@@ -13,9 +13,14 @@ import {
   removeBrowserProfile,
   withBrowserProfile,
 } from "./browser.ts";
-import { connectBrowser, launchBrowser, systemBrowserPath } from "./launcher.ts";
+import { connectManagedBrowser } from "./control.ts";
+import { CredentialError, loadCredentials } from "./credentials.ts";
+import type { Credentials } from "./credentials.ts";
+import { launchBrowser } from "./launcher.ts";
 import { browserExpression, ORIGIN, SessionSchema, saveSession, sessionPath } from "./session.ts";
 import type { Session } from "./session.ts";
+import { advanceSignIn, SignInError } from "./sign-in.ts";
+import type { SignInState } from "./sign-in.ts";
 
 export class AuthError extends Error {
   override name = "AuthError";
@@ -25,12 +30,14 @@ const pollIntervalMs = 500;
 const freshnessMarginMs = 30_000;
 
 const LoginOptionsSchema = z.object({
+  force: z.boolean().default(false),
   fresh: z.boolean().default(false),
-  headless: z.boolean().default(false),
+  headless: z.boolean().optional(),
   timeoutSeconds: z.number().int().min(1).max(3600).default(300),
 });
 
 export interface LoginOptions {
+  force?: boolean;
   headless?: boolean;
   fresh?: boolean;
   timeoutSeconds?: number;
@@ -39,15 +46,18 @@ export interface LoginOptions {
 }
 
 export interface LoginRuntime {
-  launch?: (profile: string, options: { headless: boolean; timeout: number }) => Promise<Browser>;
-  connect?: (options: ConnectOptions) => Promise<Browser>;
+  launch?: (
+    profile: string,
+    options: { headless: boolean; timeout: number }
+  ) => Promise<BrowserContext>;
+  credentials?: () => Promise<Credentials | undefined>;
   fetcher?: Fetcher;
 }
 
 interface LoginBrowser {
-  browser: Browser;
+  context: BrowserContext;
   owned: boolean;
-  source: Session["source"];
+  close: () => Promise<void>;
 }
 
 const withLoginBrowser = async <T>(
@@ -57,70 +67,50 @@ const withLoginBrowser = async <T>(
 ): Promise<T> => {
   options.signal?.throwIfAborted();
 
-  const useProfile =
-    options.fresh === true || options.headless === true || runtime.launch !== undefined;
+  const connection =
+    runtime.launch || options.fresh === true ? null : await connectManagedBrowser();
 
-  const systemBrowser =
-    useProfile || runtime.connect !== undefined ? undefined : await systemBrowserPath();
-
-  const connect =
-    runtime.connect ??
-    (systemBrowser !== undefined && systemBrowser !== ""
-      ? async () => await connectBrowser(systemBrowser)
-      : undefined);
-
-  if (!useProfile && connect !== undefined) {
-    options.progress?.(
-      "Connecting to Chrome.\nIf Chrome asks for permission, select Allow. Your existing login will be reused."
-    );
-    let browser: Browser;
-
+  if (connection) {
     try {
-      browser = await connect({
-        channel: "chrome",
-        defaultViewport: null,
-        protocolTimeout: 30_000,
-        wsOptions: { handshakeTimeout: 30_000 },
+      if (options.headless !== true && connection.headless === true) {
+        throw new AuthError(
+          "The running bebu browser is headless. Stop it, then run bebu auth, or restart it with bebu browser --headed"
+        );
+      }
+
+      return await operation({
+        close: connection.disconnect,
+        context: connection.context,
+        owned: false,
       });
-    } catch {
-      throw new AuthError(
-        "The Chrome connection failed. Open Chrome. Enable chrome://inspect/#remote-debugging. Approve the connection. Then run bebu auth login. For a separate profile, use bebu auth login --fresh"
-      );
-    }
-
-    try {
-      options.progress?.(
-        "Opening Beyond Budget with your Chrome data.\nSign in if asked, then open your budget."
-      );
-
-      return await operation({ browser, owned: false, source: { kind: "browser-cdp" } });
     } finally {
-      await browser.disconnect();
+      await connection.disconnect();
     }
   }
 
-  return await withBrowserProfile(async (profile) => {
-    options.progress?.(
-      options.headless === true
-        ? "Reconnecting to Beyond Budget..."
-        : "Opening Beyond Budget in bebu's saved profile.\nSign in if asked, then open your budget."
-    );
+  return await withBrowserProfile(
+    async (profile) => {
+      options.progress?.("Opening Beyond Budget in Patchright...");
 
-    const launchOptions = {
-      headless: options.headless ?? false,
-      timeout: 30_000,
-    };
+      const context = await (runtime.launch ?? launchBrowser)(profile, {
+        headless: options.headless ?? false,
+        timeout: 30_000,
+      });
 
-    const browser = runtime.launch
-      ? await runtime.launch(profile, launchOptions)
-      : await launchBrowser(profile, launchOptions, options.progress);
-
-    try {
-      return await operation({ browser, owned: true, source: { kind: "browser-profile" } });
-    } finally {
-      await browser.close();
-    }
-  });
+      try {
+        return await operation({
+          close: async () => {
+            await context.close();
+          },
+          context,
+          owned: true,
+        });
+      } finally {
+        await context.close();
+      }
+    },
+    { force: options.force }
+  );
 };
 
 const readySession = (session: Session): boolean => {
@@ -142,8 +132,12 @@ const captureSession = async (
   options: LoginOptions,
   runtime: LoginRuntime,
   deadline: number,
-  signal: AbortSignal
+  signal: AbortSignal,
+  credentials?: Credentials
 ): Promise<Session> => {
+  const signIn: SignInState = {};
+  let automaticSignIn = Boolean(credentials);
+
   while (Date.now() < deadline) {
     signal.throwIfAborted();
 
@@ -156,6 +150,33 @@ const captureSession = async (
     if (new URL(page.url()).origin !== ORIGIN) {
       await delay(pollIntervalMs, undefined, { signal });
       continue;
+    }
+
+    if (credentials && automaticSignIn) {
+      try {
+        await advanceSignIn(page, credentials, signIn, options.progress);
+      } catch (error) {
+        if (error instanceof SignInError || signal.aborted || page.isClosed()) {
+          throw error;
+        }
+
+        if (options.headless === true) {
+          throw new AuthError(
+            "Automatic sign-in could not use the browser form. Run bebu auth to continue in a visible window"
+          );
+        }
+
+        automaticSignIn = false;
+        options.progress?.(
+          "Automatic sign-in could not use the browser form. Please continue signing in manually."
+        );
+      }
+
+      if (signIn.verificationRequired === true && options.headless === true) {
+        throw new AuthError(
+          "Beyond Budget could not verify this browser. Run bebu auth to continue in a visible window"
+        );
+      }
     }
 
     let candidate: Session | undefined;
@@ -198,8 +219,8 @@ const captureSession = async (
 
   throw new AuthError(
     options.headless === true
-      ? "Your saved browser session needs sign-in. Run bebu auth login"
-      : "Sign-in timed out. Run bebu auth login. Sign in. Open your budget"
+      ? "Sign-in timed out. Run bebu auth to finish sign-in in a visible browser"
+      : "Sign-in timed out before a usable session was available. Complete sign-in and open your budget, then run bebu auth again"
   );
 };
 
@@ -213,7 +234,28 @@ export const login = async (
     throw new AuthError("Provide a timeout from 1 to 3600 seconds");
   }
 
-  const options = { ...input, ...parsed.data };
+  let credentials: Credentials | undefined;
+
+  try {
+    credentials = await (runtime.credentials ?? loadCredentials)();
+  } catch (error) {
+    throw new AuthError(
+      error instanceof CredentialError ? error.message : "Cannot load browser sign-in credentials"
+    );
+  }
+
+  const options = {
+    ...input,
+    ...parsed.data,
+    headless: parsed.data.headless ?? false,
+  };
+
+  options.progress?.(
+    credentials
+      ? "Configured credentials found. Signing in automatically; complete any browser verification if asked."
+      : "Sign in in the browser and open your budget. bebu will detect when the connection is ready."
+  );
+
   const controller = new AbortController();
   const signal = options.signal ?? controller.signal;
 
@@ -226,82 +268,83 @@ export const login = async (
   }
 
   try {
-    return await withLoginBrowser(options, runtime, async ({ browser, owned, source }) => {
-      const timeout = options.timeoutSeconds * 1000;
-      let opening: Promise<Page> | undefined;
-      const deadlineController = new AbortController();
-      const captureSignal = AbortSignal.any([signal, deadlineController.signal]);
-      let closing: Promise<void> | undefined;
+    return await withLoginBrowser(
+      options,
+      runtime,
+      async ({ context, owned, close: closeBrowser }) => {
+        const timeout = options.timeoutSeconds * 1000;
+        let opening: Promise<Page> | undefined;
+        const deadlineController = new AbortController();
+        const captureSignal = AbortSignal.any([signal, deadlineController.signal]);
+        let closing: Promise<void> | undefined;
 
-      const close = async (): Promise<void> => {
-        closing ??= (async () => {
-          try {
-            const page = await opening;
-            await page?.close();
-          } finally {
-            await (owned ? browser.close() : browser.disconnect());
-          }
-        })().catch(() => {
-          // Cancellation can close the connection before cleanup completes.
-        });
+        const close = async (): Promise<void> => {
+          closing ??= (async () => {
+            try {
+              const page = await opening;
+              await page?.close();
+            } finally {
+              await closeBrowser();
+            }
+          })().catch(() => {
+            // Cancellation can close the connection before cleanup completes.
+          });
 
-        await closing;
-      };
+          await closing;
+        };
 
-      const stop = () => {
-        void close();
-      };
+        const stop = () => {
+          void close();
+        };
 
-      captureSignal.addEventListener("abort", stop, { once: true });
-      let timer: ReturnType<typeof setTimeout> | undefined;
+        captureSignal.addEventListener("abort", stop, { once: true });
+        let timer: ReturnType<typeof setTimeout> | undefined;
 
-      try {
-        captureSignal.throwIfAborted();
-        opening = owned
-          ? (async () => {
-              const pages = await browser.pages();
+        try {
+          captureSignal.throwIfAborted();
+          opening = owned
+            ? (async () => context.pages()[0] ?? (await context.newPage()))()
+            : context.newPage();
+          const page = await opening;
+          captureSignal.throwIfAborted();
+          await page.goto(ORIGIN, { timeout: 30_000, waitUntil: "domcontentloaded" });
+          timer = setTimeout(() => {
+            deadlineController.abort(
+              new AuthError(
+                options.headless
+                  ? "Sign-in timed out. Run bebu auth to finish sign-in in a visible browser"
+                  : "Sign-in timed out before a usable session was available. Complete sign-in and open your budget, then run bebu auth again"
+              )
+            );
+          }, timeout);
 
-              return pages[0] ?? (await browser.newPage());
-            })()
-          : browser.defaultBrowserContext().newPage({ type: "window" });
-        const page = await opening;
-        captureSignal.throwIfAborted();
-        await page.goto(ORIGIN, { timeout: 30_000, waitUntil: "domcontentloaded" });
-        timer = setTimeout(() => {
-          deadlineController.abort(
-            new AuthError(
-              options.headless
-                ? "Your saved browser session needs sign-in. Run bebu auth login"
-                : "Sign-in timed out. Run bebu auth login, sign in, and open your budget"
-            )
+          const session = await captureSession(
+            page,
+            { kind: "browser-profile" },
+            options,
+            runtime,
+            Date.now() + timeout,
+            captureSignal,
+            credentials
           );
-        }, timeout);
 
-        const session = await captureSession(
-          page,
-          source,
-          options,
-          runtime,
-          Date.now() + timeout,
-          captureSignal
-        );
+          captureSignal.throwIfAborted();
+          await saveSession(session);
 
-        captureSignal.throwIfAborted();
-        await saveSession(session);
+          return session;
+        } catch (error) {
+          if (captureSignal.aborted) {
+            throw captureSignal.reason;
+          }
 
-        return session;
-      } catch (error) {
-        if (captureSignal.aborted) {
-          throw captureSignal.reason;
+          throw error;
+        } finally {
+          clearTimeout(timer);
+          captureSignal.removeEventListener("abort", stop);
+          await close();
         }
-
-        throw error;
-      } finally {
-        clearTimeout(timer);
-        captureSignal.removeEventListener("abort", stop);
-        await close();
       }
-    });
+    );
   } catch (error) {
     if (signal.aborted) {
       throw signal.reason;
@@ -311,13 +354,17 @@ export const login = async (
       throw error;
     }
 
+    if (error instanceof SignInError) {
+      throw new AuthError(error.message);
+    }
+
     if (error instanceof BrowserSetupError) {
       throw new AuthError(error.message);
     }
 
     // Browser errors can contain private page data. Return only messages that bebu controls.
     throw new AuthError(
-      "Browser sign-in failed. Stop any other bebu login. Then run bebu auth login. To use the separate saved profile, run bebu auth login --fresh"
+      "Browser sign-in failed. Check Patchright setup and your sign-in configuration. Then run bebu auth login"
     );
   } finally {
     if (!options.signal) {

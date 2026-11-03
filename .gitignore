@@ -16,3 +16,6 @@ encrypted-handoff*.json
 .env
 .env.*
 *.tgz
+!.env.schema
+.local/
+.varlock/

@@ -15,7 +15,8 @@
     "AGENTS.md",
     "skills/",
     "docs/",
-    "README.md"
+    "README.md",
+    ".env.schema"
   ],
   "type": "module",
   "scripts": {
@@ -28,7 +29,8 @@
     "check": "bun run typecheck",
     "typecheck": "oxlint --type-aware --type-check .",
     "test": "bun test",
-    "start": "node bin.mjs"
+    "start": "node bin.mjs",
+    "env:check": "varlock load --agent"
   },
   "dependencies": {
     "@clack/prompts": "1.8.1",
@@ -36,10 +38,10 @@
     "@crustjs/extensions": "0.5.6",
     "@crustjs/skills": "0.5.6",
     "@oxc-node/core": "0.0.34",
-    "@puppeteer/browsers": "3.2.5",
     "env-paths": "4.0.0",
-    "puppeteer-core": "25.15.0",
+    "patchright": "1.64.3",
     "skills": "1.7.4",
+    "varlock": "1.24.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -50,7 +52,6 @@
     "oxfmt": "0.74.0",
     "oxlint": "1.89.0",
     "oxlint-tsgolint": "7.0.2005",
-    "playwright-core": "1.64.1",
     "typescript": "7.0.2",
     "ultracite": "8.0.1"
   },

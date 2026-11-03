@@ -324,7 +324,7 @@ export const loadSession = async (runtime: LoginRuntime = {}): Promise<Session> 
 
   if (stale && session.source?.kind === "browser-profile") {
     const { login } = await import("./login.ts");
-    session = await login({ fresh: true, headless: true, timeoutSeconds: 60 }, runtime);
+    session = await login({ headless: true, timeoutSeconds: 60 }, runtime);
   }
 
   if (stale && session.source?.kind === "browser-cdp") {

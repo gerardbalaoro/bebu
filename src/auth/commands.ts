@@ -1,4 +1,5 @@
 import { defineCommand } from "@crustjs/core";
+import type { CrustCommandContext } from "@crustjs/core";
 
 import { compactFlag, payload, print } from "../cli/io.ts";
 import { loginWithPrompts, signedInMessage } from "./login-prompt.ts";
@@ -13,63 +14,94 @@ import {
   saveSession,
 } from "./session.ts";
 
+const LoginFlags = [
+  {
+    description: "Recover a stale profile lock after its login process has exited",
+    name: "force",
+    type: "boolean",
+  },
+  {
+    description: "Launch the saved profile directly; requires bebu browser to be stopped",
+    name: "fresh",
+    type: "boolean",
+  },
+  {
+    description: "Run without a visible window",
+    name: "headless",
+    type: "boolean",
+  },
+  {
+    description: "Show the browser for manual sign-in or challenges",
+    name: "headed",
+    type: "boolean",
+  },
+  {
+    default: 300,
+    description: "Wait 1 to 3600 seconds for sign-in",
+    name: "timeout",
+    type: "number",
+  },
+] as const;
+
+type LoginContext = CrustCommandContext<
+  [],
+  {
+    [Flag in (typeof LoginFlags)[number] as Flag["name"]]: Flag;
+  }
+>;
+
+const runLogin = async ({ flags, signal, stdout, stderr }: LoginContext) => {
+  let headless: boolean | undefined;
+
+  if (flags.headed === true) {
+    headless = false;
+  } else if (flags.headless === true) {
+    headless = true;
+  }
+
+  const options = {
+    force: flags.force,
+    fresh: flags.fresh,
+    headless: headless ?? false,
+    signal,
+    timeoutSeconds: flags.timeout,
+  };
+
+  if (process.stdout.isTTY && process.stderr.isTTY) {
+    await loginWithPrompts(options);
+
+    return;
+  }
+
+  const session = await login({ ...options, progress: stderr });
+
+  stdout(
+    `${signedInMessage(session)}${session.selectedBudgetName !== undefined && session.selectedBudgetName !== "" ? `\nSelected budget: ${session.selectedBudgetName}` : ""}\n\nRead your accounts:\n  bebu accounts list`
+  );
+};
+
 export const authCommand = defineCommand(
   "auth",
-  { description: "Sign in through your browser and manage the saved connection" },
+  {
+    description: "Open the browser, sign in automatically when configured, and save the connection",
+  },
   (command) =>
     command
+      .flags(...LoginFlags)
+      .action(runLogin)
       .add(
         defineCommand(
           "login",
           {
-            description: "Connect through your Chrome session. If necessary, wait for sign-in",
+            description: "Sign in with configured credentials through Patchright",
             sections: [
               {
-                body: "bebu auth login\nbebu auth login --fresh\nbebu auth status\n\nTo reuse your Chrome session:\n1. Enable chrome://inspect/#remote-debugging.\n2. Approve the connection prompt.\n3. If the app requires sign-in, sign in.\n4. Open your budget.",
+                body: "Set BEBU_USERNAME and BEBU_PASSWORD in .env beside .env.schema, or export them.\n\nbebu auth\nbebu auth login\nbebu auth status\n\nThe browser is visible by default. Both configured credentials are entered automatically. Otherwise, complete sign-in manually. bebu detects completion and validates budget access.",
                 title: "Examples",
               },
             ],
           },
-          (leaf) =>
-            leaf
-              .flags(
-                {
-                  description: "Use the separate saved browser profile for bebu",
-                  name: "fresh",
-                  type: "boolean",
-                },
-                {
-                  description: "Use the separate saved browser profile without a visible window",
-                  name: "headless",
-                  type: "boolean",
-                },
-                {
-                  default: 300,
-                  description: "Wait 1 to 3600 seconds for sign-in",
-                  name: "timeout",
-                  type: "number",
-                }
-              )
-              .action(async ({ flags, signal, stdout, stderr }) => {
-                const options = {
-                  fresh: flags.fresh,
-                  headless: flags.headless,
-                  signal,
-                  timeoutSeconds: flags.timeout,
-                };
-
-                if (process.stdout.isTTY && process.stderr.isTTY) {
-                  await loginWithPrompts(options);
-
-                  return;
-                }
-
-                const session = await login({ ...options, progress: stderr });
-
-                stdout(
-                  `${signedInMessage(session)}${session.selectedBudgetName !== undefined && session.selectedBudgetName !== "" ? `\nSelected budget: ${session.selectedBudgetName}` : ""}\n\nRead your accounts:\n  bebu accounts list`
-                );
-              })
+          (leaf) => leaf.flags(...LoginFlags).action(runLogin)
         )
       )
       .add(
@@ -96,7 +128,7 @@ export const authCommand = defineCommand(
           "logout",
           {
             description:
-              "Delete local credentials and the separate bebu profile. Your Chrome profile stays intact",
+              "Delete local credentials and the managed browser profile; stop bebu browser first",
           },
           (leaf) =>
             leaf.action(async ({ stdout }) => {

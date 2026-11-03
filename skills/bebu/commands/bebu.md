@@ -12,28 +12,26 @@ Install the skill for your agent: npx --yes skills add gerardbalaoro/bebu --skil
 
 ## Browser session
 
-Run bebu auth login.
+Set BEBU_USERNAME and BEBU_PASSWORD in .env beside .env.schema, or export them. Run bebu auth to
+open a visible Patchright browser. Both configured credentials are entered and submitted
+automatically. Without credentials, sign in manually. bebu detects completion and validates budget
+access. Use --headless only when a visible window is not needed.
 
-To reuse your Chrome session (Chrome 144+):
+Run bebu browser to keep a headless managed browser running in the foreground. It prints JSON with a
+loopback CDP endpoint. Connect available browser tooling to that endpoint. Use --headed to show its
+window, browser status to read its endpoint, and browser stop to close it.
 
-1. Enable chrome://inspect/#remote-debugging.
-2. Approve the connection prompt.
-3. If the app requires sign-in, sign in.
-4. Open your budget.
+Auth attaches to a running managed browser and closes only its own tab. For visible sign-in, start
+bebu browser --headed, or stop a running headless browser before bebu auth. The session import
+command can also capture a named agent-browser session.
 
-bebu opens a separate app window in your Chrome profile. It closes that window after login. Your
-other tabs stay open.
+Auth status reads saved expiry without renewal. Data commands renew expired browser credentials
+automatically. Auth logout deletes local credentials and the managed profile; stop bebu browser
+first.
 
-For a separate saved browser profile, use auth login --fresh.
-
-The auth status command shows the connection state. The auth logout command deletes local
-credentials and the separate bebu profile. Your Chrome profile stays intact.
-
-Data commands use direct requests to Firestore. The session import and session prepare commands can
-reuse an agent browser.
-
-BEBU_HOME selects the bebu data folder. BEBU_BROWSER selects the browser executable for the separate
-profile.
+BEBU_HOME selects the bebu data folder. Data commands use direct Firestore requests. Credentials are
+entered only on the Beyond Budget origin. Keep .env private. CDP grants full browser access and is
+bound to loopback.
 
 ## Write rules
 
@@ -95,7 +93,9 @@ remain unresolved; preserve existing data and do not blindly replay them.
 - [`accounts`](accounts.md) - Read accounts and change their configuration
 - [`allocations`](allocations.md) - Plan and save manual allocations, inspect history, or preview
   target funding
-- [`auth`](auth.md) - Sign in through your browser and manage the saved connection
+- [`auth`](auth.md) - Open the browser, sign in automatically when configured, and save the
+  connection
+- [`browser`](browser.md) - Run Patchright in the foreground and publish a local CDP endpoint
 - [`budget`](budget.md) - Read budget diagnostics
 - [`categories`](categories.md) - Read categories and create or change supported ordinary categories
 - [`groups`](groups.md) - Read groups and rename supported ordinary groups

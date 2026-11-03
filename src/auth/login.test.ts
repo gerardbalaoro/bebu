@@ -3,8 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { spawn } from "bun";
 
-// Exercise browser lifecycle on the installed Node runtime. A separate Playwright connection
-// owns each local browser fixture and verifies that user tabs survive Puppeteer disconnects.
+// Exercise login against local browser fixtures without contacting the real budget.
 
 test("Node browser login captures sessions, renews, cancels, and redacts credentials", async () => {
   const child = spawn({

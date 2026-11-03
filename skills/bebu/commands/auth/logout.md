@@ -1,6 +1,6 @@
 # `bebu auth logout`
 
-Delete local credentials and the separate bebu profile. Your Chrome profile stays intact
+Delete local credentials and the managed browser profile; stop bebu browser first
 
 ## Usage
 

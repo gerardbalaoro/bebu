@@ -113,3 +113,148 @@ test("a second browser operation cannot race an active login or erase its profil
     await rm(directory, { force: true, recursive: true });
   }
 });
+
+test("force recovers a lock left by an exited process without deleting the saved profile", async () => {
+  const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-force-stale-"));
+  const previous = process.env.BEBU_SESSION_FILE;
+  process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+
+  try {
+    await withBrowserProfile(async (profile) => {
+      await writeFile(nodePath.join(profile, "saved-browser-data"), "preserve");
+    });
+    const child = Bun.spawn([process.execPath, "-e", ""], { stderr: "ignore", stdout: "ignore" });
+    await child.exited;
+    const lock = `${profilePath()}.lock`;
+    await writeFile(lock, String(child.pid));
+    await assert.rejects(
+      withBrowserProfile(async () => await Promise.resolve("unexpected")),
+      /Another browser login/u
+    );
+
+    const value = await withBrowserProfile(
+      async (profile) => {
+        expect(await readFile(lock, "utf-8")).toBe(String(process.pid));
+
+        return await readFile(nodePath.join(profile, "saved-browser-data"), "utf-8");
+      },
+      { force: true }
+    );
+
+    expect(value).toBe("preserve");
+    await assert.rejects(stat(lock));
+  } finally {
+    if (previous === undefined) {
+      delete process.env.BEBU_SESSION_FILE;
+    } else {
+      process.env.BEBU_SESSION_FILE = previous;
+    }
+
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test("force refuses to remove a lock held by a running login", async () => {
+  const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-force-active-"));
+  const previous = process.env.BEBU_SESSION_FILE;
+  process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+
+  try {
+    await withBrowserProfile(async () => {
+      await assert.rejects(
+        withBrowserProfile(async () => await Promise.resolve("unexpected"), { force: true }),
+        /still running/u
+      );
+      expect(await readFile(`${profilePath()}.lock`, "utf-8")).toBe(String(process.pid));
+    });
+  } finally {
+    if (previous === undefined) {
+      delete process.env.BEBU_SESSION_FILE;
+    } else {
+      process.env.BEBU_SESSION_FILE = previous;
+    }
+
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test("force preserves a lock whose owner cannot be identified", async () => {
+  const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-force-unknown-"));
+  const previous = process.env.BEBU_SESSION_FILE;
+  process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+
+  try {
+    const path = `${profilePath()}.lock`;
+    await writeFile(path, "unknown-owner");
+    await assert.rejects(
+      withBrowserProfile(async () => await Promise.resolve("unexpected"), { force: true }),
+      /Cannot confirm/u
+    );
+    expect(await readFile(path, "utf-8")).toBe("unknown-owner");
+  } finally {
+    if (previous === undefined) {
+      delete process.env.BEBU_SESSION_FILE;
+    } else {
+      process.env.BEBU_SESSION_FILE = previous;
+    }
+
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test("concurrent forced recoveries cannot run two operations in the same profile", async () => {
+  const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-force-race-"));
+  const previous = process.env.BEBU_SESSION_FILE;
+  process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+  const release = Promise.withResolvers<undefined>();
+
+  try {
+    const child = Bun.spawn([process.execPath, "-e", ""], { stderr: "ignore", stdout: "ignore" });
+    await child.exited;
+    await writeFile(`${profilePath()}.lock`, String(child.pid));
+    const started = Promise.withResolvers<undefined>();
+    const rejected = Promise.withResolvers<undefined>();
+    let active = 0;
+    let peak = 0;
+
+    const recover = async () => {
+      try {
+        return await withBrowserProfile(
+          async () => {
+            active += 1;
+            peak = Math.max(peak, active);
+            started.resolve();
+            await release.promise;
+            active -= 1;
+
+            return "recovered";
+          },
+          { force: true }
+        );
+      } catch (error) {
+        rejected.resolve();
+        throw error;
+      }
+    };
+
+    const completed = Promise.allSettled([recover(), recover()]);
+    await started.promise;
+    await rejected.promise;
+    release.resolve();
+    const results = await completed;
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(peak).toBe(1);
+    await assert.rejects(stat(`${profilePath()}.lock`));
+    await assert.rejects(stat(`${profilePath()}.lock.recovery`));
+  } finally {
+    release.resolve();
+
+    if (previous === undefined) {
+      delete process.env.BEBU_SESSION_FILE;
+    } else {
+      process.env.BEBU_SESSION_FILE = previous;
+    }
+
+    await rm(directory, { force: true, recursive: true });
+  }
+});

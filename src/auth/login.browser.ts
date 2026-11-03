@@ -1,27 +1,25 @@
 /* oxlint-disable no-await-in-loop -- Browser teardown requires ordered awaits. */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { chromium } from "playwright-core";
-import type { Browser, BrowserContext } from "playwright-core";
-import * as puppeteer from "puppeteer-core";
-import type { ConnectOptions } from "puppeteer-core";
+import { chromium } from "patchright";
+import type { BrowserContext } from "patchright";
+import { z } from "zod";
 
+import { browserStatus, runBrowser, stopBrowser } from "./control.ts";
 import { launchBrowser } from "./launcher.ts";
 import { authStatus, login, logout } from "./login.ts";
 import type { LoginRuntime } from "./login.ts";
 import { loadSession } from "./session.ts";
+import { advanceSignIn } from "./sign-in.ts";
 
-const loginInstruction = /auth login/u;
-
-const waitForLoginTabToClose = async (context: BrowserContext): Promise<void> => {
-  const page = await context.waitForEvent("page");
-  await page.waitForEvent("close");
-};
+const loginInstruction = /bebu auth/u;
 
 const authTest = (name: string, body: () => Promise<void>, timeout = 15_000): void => {
   void test(name, { timeout }, body);
@@ -39,6 +37,9 @@ const signedInPage = `<!doctype html><script>
 </script>`;
 
 const runtime = (html: string, contexts: BrowserContext[]): LoginRuntime => ({
+  credentials: async () => {
+    await Promise.resolve();
+  },
   fetcher: async (input, init) => {
     assert.equal(
       new Request(input, init).url,
@@ -63,129 +64,32 @@ const runtime = (html: string, contexts: BrowserContext[]): LoginRuntime => ({
     );
   },
   launch: async (profile, options) => {
-    const browser = await launchBrowser(profile, {
+    const context = await launchBrowser(profile, {
       ...options,
       headless: true,
     });
 
-    const connection = await chromium.connectOverCDP(browser.wsEndpoint(), { noDefaults: true });
-    const [context] = connection.contexts();
-    assert.ok(context);
-
     contexts.push(context);
     await context.route("**/*", async (route) => {
+      if (new URL(route.request().url()).hostname === "identitytoolkit.googleapis.com") {
+        await route.fulfill({
+          headers: { "Access-Control-Allow-Origin": "*" },
+          json: {
+            idToken: "fixture-access-token",
+            localId: "fixture-user",
+            refreshToken: "fixture-refresh-token",
+          },
+        });
+
+        return;
+      }
+
       await route.fulfill({ body: html, contentType: "text/html" });
     });
 
-    return browser;
+    return context;
   },
 });
-
-authTest(
-  "existing browser login reuses its data, renews, and leaves user tabs intact after timeout and logout",
-  async () => {
-    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-cdp-"));
-    const userDataDir = nodePath.join(directory, "user-browser");
-    const previous = process.env.BEBU_SESSION_FILE;
-    process.env.BEBU_SESSION_FILE = nodePath.join(directory, "bebu", "session.json");
-
-    const chrome = await launchBrowser(userDataDir, { headless: true, timeout: 10_000 });
-
-    let browser: Browser | undefined;
-
-    try {
-      const endpoint = chrome.wsEndpoint();
-      browser = await chromium.connectOverCDP(endpoint, { noDefaults: true });
-      const [context] = browser.contexts();
-      assert.ok(context);
-      let html = "<!doctype html>Sign in";
-      await context.route("**/*", async (route) => {
-        await route.fulfill({ body: html, contentType: "text/html" });
-      });
-      const [userTab] = context.pages();
-      assert.ok(userTab);
-      const { fetcher } = runtime(signedInPage, []);
-
-      const connect = async (options: ConnectOptions) => {
-        assert.equal(options.channel, "chrome");
-        assert.equal(options.defaultViewport, null);
-
-        return await puppeteer.connect({
-          ...options,
-          browserWSEndpoint: endpoint,
-          channel: undefined,
-        });
-      };
-
-      const timedOutTab = waitForLoginTabToClose(context);
-      await assert.rejects(login({ timeoutSeconds: 1 }, { connect, fetcher }), loginInstruction);
-      await timedOutTab;
-      assert.equal(userTab.isClosed(), false);
-      assert.equal(context.pages().length, 1);
-
-      const controller = new AbortController();
-      const cancelledTab = waitForLoginTabToClose(context);
-      context.once("page", () => {
-        controller.abort(new DOMException("Cancelled fixture connection", "AbortError"));
-      });
-      await assert.rejects(
-        login({ signal: controller.signal, timeoutSeconds: 10 }, { connect, fetcher }),
-        { message: "Cancelled fixture connection", name: "AbortError" }
-      );
-      await cancelledTab;
-      assert.equal(userTab.isClosed(), false);
-      assert.equal(context.pages().length, 1);
-
-      html = signedInPage;
-      await userTab.goto("https://app.beyondbudgetapp.com");
-      const signedInTab = waitForLoginTabToClose(context);
-      const signedIn = await login({ timeoutSeconds: 10 }, { connect, fetcher });
-      await signedInTab;
-      assert.equal(signedIn.uid, "fixture-user");
-      assert.deepEqual(signedIn.source, { kind: "browser-cdp" });
-      assert.equal(userTab.isClosed(), false);
-      assert.equal(userTab.url(), "https://app.beyondbudgetapp.com/");
-      assert.equal(context.pages().length, 1);
-      await assert.rejects(stat(nodePath.join(directory, "bebu", "browser-profile")));
-
-      await writeFile(
-        nodePath.join(directory, "bebu", "session.json"),
-        JSON.stringify({ ...signedIn, expiresAt: 1, idToken: "stale-token" })
-      );
-      const renewedTab = waitForLoginTabToClose(context);
-      const renewed = await loadSession({ connect, fetcher });
-      await renewedTab;
-      assert.equal(renewed.idToken, "fixture-access-token");
-      assert.deepEqual(renewed.source, { kind: "browser-cdp" });
-      await logout();
-      assert.equal(userTab.isClosed(), false);
-      assert.equal(context.pages().length, 1);
-      assert.equal(browser.isConnected(), true);
-      const portFile = await stat(nodePath.join(userDataDir, "DevToolsActivePort"));
-      assert.equal(portFile.isFile(), true);
-      await assert.rejects(stat(nodePath.join(directory, "bebu", "session.json")));
-    } finally {
-      if (browser?.isConnected() === true) {
-        const channel = await browser.newBrowserCDPSession();
-        await channel.send("Browser.close").catch(() => {
-          // The browser can close before the protocol response arrives.
-        });
-        await browser.close();
-      }
-
-      await chrome.close();
-
-      if (previous === undefined) {
-        delete process.env.BEBU_SESSION_FILE;
-      } else {
-        process.env.BEBU_SESSION_FILE = previous;
-      }
-
-      await rm(directory, { force: true, maxRetries: 10, recursive: true, retryDelay: 100 });
-    }
-  },
-  30_000
-);
 
 authTest(
   "browser login validates tokens, saves only the connection, and closes its profile",
@@ -266,7 +170,15 @@ authTest(
       assert.equal(contexts[0]?.pages()?.length, 0);
       await assert.rejects(stat(nodePath.join(directory, "session.json")));
       await assert.rejects(stat(nodePath.join(directory, "browser-profile.lock")));
-      assert.deepEqual(await authStatus(), { authenticated: false, state: "signed-out" });
+      assert.deepEqual(await authStatus(), {
+        authenticated: false,
+        profile: {
+          locked: false,
+          path: nodePath.join(directory, "browser-profile"),
+          state: "owned",
+        },
+        state: "signed-out",
+      });
     } finally {
       for (const context of contexts) {
         await context.close();
@@ -294,7 +206,16 @@ authTest("login waits for the user to finish signing in before saving a session"
       .replace("(async()=>{", "setTimeout(async()=>{")
       .replace("})();", "}, 1200);");
 
-    const pending = login({ timeoutSeconds: 10 }, runtime(delayedPage, contexts));
+    const external = runtime(delayedPage, contexts);
+    const { launch } = external;
+    assert.ok(launch);
+    external.launch = async (profile, options) => {
+      assert.equal(options.headless, false, "manual sign-in must open a visible window");
+
+      return await launch(profile, options);
+    };
+
+    const pending = login({ timeoutSeconds: 10 }, external);
     await delay(500);
     await assert.rejects(stat(nodePath.join(directory, "session.json")));
     const session = await pending;
@@ -497,4 +418,556 @@ authTest(
     }
   },
   15_000
+);
+
+authTest(
+  "automated login submits email and password once and saves only validated tokens",
+  async () => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-auto-auth-"));
+    const previous = process.env.BEBU_SESSION_FILE;
+    process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+    const contexts: BrowserContext[] = [];
+    const credentials = { password: "fixture-password", username: "test@example.com" };
+    const seedScript = /<script>(?<script>[\s\S]*)<\/script>/u.exec(signedInPage)?.groups?.script;
+    assert.ok(seedScript !== undefined && seedScript !== "");
+
+    const html = `<!doctype html><button id="welcome">Continue with email</button><script>
+    document.querySelector('#welcome').onclick=()=>{
+      document.body.innerHTML='<label>Email<input aria-label="Email"></label><button>Continue</button>';
+      document.querySelector('button').onclick=()=>{
+        if(document.querySelector('input').value!=='test@example.com')throw Error('wrong email');
+        document.body.innerHTML='<input type="password" aria-label="Password"><button>Sign in</button>';
+        document.querySelector('button').onclick=async()=>{
+          if(document.querySelector('input').value!=='fixture-password')throw Error('wrong password');
+          await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=fixture',{method:'POST',body:'{}'});
+          document.body.innerHTML='Signed in';
+          ${seedScript}
+        };
+      };
+    };
+  </script>`;
+
+    try {
+      const external = runtime(html, contexts);
+      external.credentials = async () => {
+        await Promise.resolve();
+
+        return credentials;
+      };
+
+      const { launch } = external;
+      assert.ok(launch);
+      external.launch = async (profile, options) => {
+        assert.equal(
+          options.headless,
+          false,
+          "configured credentials must not hide the login window"
+        );
+
+        return await launch(profile, options);
+      };
+
+      const session = await login({ timeoutSeconds: 10 }, external);
+      assert.equal(session.uid, "fixture-user");
+      const stored = await readFile(nodePath.join(directory, "session.json"), "utf-8");
+      assert.ok(!stored.includes(credentials.password));
+      assert.ok(!stored.includes("fixture-refresh-token"));
+    } finally {
+      for (const context of contexts) {
+        await context.close();
+      }
+
+      if (previous === undefined) {
+        delete process.env.BEBU_SESSION_FILE;
+      } else {
+        process.env.BEBU_SESSION_FILE = previous;
+      }
+
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);
+
+authTest(
+  "an unavailable automatic sign-in control leaves the browser open for manual login",
+  async () => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-manual-fallback-"));
+    const previous = process.env.BEBU_SESSION_FILE;
+    process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+    const contexts: BrowserContext[] = [];
+    const messages: string[] = [];
+    const seedScript = /<script>(?<script>[\s\S]*)<\/script>/u.exec(signedInPage)?.groups?.script;
+    assert.ok(seedScript !== undefined && seedScript !== "");
+
+    try {
+      const external = runtime(
+        `<!doctype html><input aria-label="Email"><button>Continue</button><script>
+        document.querySelector('button').onclick=()=>{
+          document.body.innerHTML='<input type="password" aria-label="Password"><button id="emailSignIn.submit" hidden>Sign in</button>';
+        };
+      </script>`,
+        contexts
+      );
+
+      external.credentials = async () =>
+        await Promise.resolve({ password: "fixture-password", username: "test@example.com" });
+
+      const session = await login(
+        {
+          progress: (message) => {
+            messages.push(message);
+
+            if (message.includes("continue signing in manually")) {
+              const page = contexts[0]?.pages()[0];
+              assert.ok(page && !page.isClosed());
+              void page.evaluate(seedScript);
+            }
+          },
+          timeoutSeconds: 10,
+        },
+        external
+      );
+
+      assert.equal(session.uid, "fixture-user");
+      assert.equal(
+        messages.filter((message) => message.includes("continue signing in manually")).length,
+        1
+      );
+      assert.ok(!messages.join(" ").includes("fixture-password"));
+    } finally {
+      for (const context of contexts) {
+        await context.close();
+      }
+
+      if (previous === undefined) {
+        delete process.env.BEBU_SESSION_FILE;
+      } else {
+        process.env.BEBU_SESSION_FILE = previous;
+      }
+
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);
+
+authTest(
+  "CDP browser supports auth without closing agent tabs and stop releases the profile lock",
+  async () => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-control-"));
+    const previous = process.env.BEBU_SESSION_FILE;
+    process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+    const ready = Promise.withResolvers<undefined>();
+    const controller = new AbortController();
+    const contexts: BrowserContext[] = [];
+    let endpoint = "";
+
+    const serving = runBrowser(
+      {
+        ready: (status) => {
+          ({ endpoint } = status);
+          ready.resolve();
+        },
+        signal: controller.signal,
+      },
+      async (profile, options) => {
+        const external = runtime(signedInPage, contexts);
+        assert.ok(external.launch);
+
+        const context = await launchBrowser(profile, { ...options, headless: true });
+
+        contexts.push(context);
+        await context.route("**/*", async (route) => {
+          await route.fulfill({ body: signedInPage, contentType: "text/html" });
+        });
+
+        return context;
+      }
+    );
+
+    const started = (async () => {
+      try {
+        await serving;
+      } catch (error) {
+        ready.reject(error);
+        throw error;
+      }
+    })();
+
+    try {
+      await Promise.race([ready.promise, started]);
+      assert.match(endpoint, /^http:\/\/127\.0\.0\.1:\d+$/u);
+      const status = await browserStatus();
+      assert.equal(status.running, true);
+      const stateFile = nodePath.join(directory, "browser.json");
+      const originalState = await readFile(stateFile, "utf-8");
+      await writeFile(
+        stateFile,
+        originalState.replace("/devtools/browser/", "/devtools/browser/not-owned-")
+      );
+      assert.deepEqual(await browserStatus(), { running: false });
+      await writeFile(stateFile, originalState);
+
+      const connection = await chromium.connectOverCDP(endpoint);
+
+      try {
+        const [context] = connection.contexts();
+        assert.ok(context);
+        const [tab] = context.pages();
+        assert.ok(tab);
+        const { fetcher, credentials } = runtime(signedInPage, []);
+
+        const session = await login(
+          { headless: true, timeoutSeconds: 5 },
+          { credentials, fetcher }
+        );
+
+        assert.equal(session.uid, "fixture-user");
+        assert.equal(tab.isClosed(), false);
+        assert.equal(context.pages().length, 1);
+        await assert.rejects(login({ timeoutSeconds: 5 }, { credentials, fetcher }), /headless/u);
+        assert.equal(tab.isClosed(), false);
+        await assert.rejects(logout(), /Another browser login/u);
+        assert.deepEqual(await stopBrowser(), { stopped: true });
+        await started;
+        assert.deepEqual(await browserStatus(), { running: false });
+        await assert.rejects(stat(nodePath.join(directory, "browser-profile.lock")));
+      } finally {
+        await connection.close();
+      }
+    } finally {
+      controller.abort();
+      await started;
+
+      if (previous === undefined) {
+        delete process.env.BEBU_SESSION_FILE;
+      } else {
+        process.env.BEBU_SESSION_FILE = previous;
+      }
+
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);
+
+authTest(
+  "sign-in follows Compose shadow semantics and clicks through transparent controls",
+  async () => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-compose-"));
+    const context = await launchBrowser(directory, { headless: true, timeout: 30_000 });
+    const [profile] = context.pages();
+    assert.ok(profile);
+
+    try {
+      await context.route("**/*", async (route) => {
+        await route.fulfill({
+          body: `<!doctype html><div id="app"></div><script>
+      const root = document.querySelector('#app').attachShadow({mode:'open'});
+      const styles = '<style>.actual,.semantics{position:absolute;left:20px;top:20px;width:200px;height:40px}.semantics{opacity:0;pointer-events:none}button{top:100px!important}</style>';
+      const email = () => {
+        root.innerHTML=styles+'<input class="actual" aria-hidden="true"><button class="actual" aria-hidden="true"></button><div class="semantics" role="textbox" aria-label="Email" contenteditable="true"></div><div class="semantics" role="button" style="top:100px">Continue</div>';
+        root.querySelector('button').onclick=()=>{
+          document.documentElement.dataset.emailValue=root.querySelector('input').value;
+          root.innerHTML=styles+'<input class="actual" aria-hidden="true"><button class="actual" aria-hidden="true"></button><div class="semantics" role="textbox" aria-label="Password" contenteditable="true"></div><div class="semantics" role="button" style="top:100px">Sign in</div>';
+          root.querySelector('button').onclick=()=>{document.documentElement.dataset.passwordValue=root.querySelector('input').value;document.documentElement.dataset.attempts=String(Number(document.documentElement.dataset.attempts||0)+1);fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=fixture',{method:'POST',body:'{}'});};
+        };
+      };
+      root.innerHTML=styles+'<button class="actual" aria-hidden="true"></button><div class="semantics" role="button" style="top:100px">Continue with email</div>';
+      root.querySelector('button').onclick=email;
+    </script>`,
+          contentType: "text/html",
+        });
+      });
+      await profile.goto("https://app.beyondbudgetapp.com");
+      const state = {};
+      const credentials = { password: "fixture-password", username: "fixture@example.com" };
+      await advanceSignIn(profile, credentials, state);
+      await advanceSignIn(profile, credentials, state);
+      await advanceSignIn(profile, credentials, state);
+      await advanceSignIn(profile, credentials, state);
+      assert.deepEqual(
+        await profile.evaluate(
+          "({email:document.documentElement.dataset.emailValue,password:document.documentElement.dataset.passwordValue,attempts:Number(document.documentElement.dataset.attempts)})"
+        ),
+        { attempts: 1, email: "fixture@example.com", password: "fixture-password" }
+      );
+      await profile.goto("https://example.org");
+      const foreignState = {};
+      await advanceSignIn(profile, credentials, foreignState);
+      assert.deepEqual(foreignState, {});
+      assert.deepEqual(state, {
+        emailSubmitted: true,
+        opened: true,
+        passwordAttempted: true,
+        passwordSubmitted: true,
+      });
+    } finally {
+      await context.close();
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);
+
+authTest(
+  "a CDP port served by another browser is rejected before its endpoint is published",
+  async () => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-wrong-port-"));
+    const previous = process.env.BEBU_SESSION_FILE;
+    process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+
+    const endpoint = createServer((request, response) => {
+      const value =
+        request.url === "/json/version"
+          ? { webSocketDebuggerUrl: "ws://127.0.0.1/devtools/browser/other" }
+          : [{ id: "unrelated-target" }];
+
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify(value));
+    });
+
+    const listening = Promise.withResolvers<undefined>();
+    endpoint.once("error", (error) => {
+      listening.reject(error);
+    });
+    endpoint.listen(0, "127.0.0.1", () => {
+      listening.resolve();
+    });
+
+    try {
+      await listening.promise;
+      const address = z.object({ port: z.number().int().positive() }).parse(endpoint.address());
+      await assert.rejects(
+        runBrowser(
+          {
+            port: address.port,
+            ready: () => {
+              assert.fail("An unrelated CDP endpoint must never be published");
+            },
+          },
+          async (profile, options) => await launchBrowser(profile, { ...options, port: 0 })
+        ),
+        /belongs to another browser/u
+      );
+      assert.deepEqual(await browserStatus(), { running: false });
+      await assert.rejects(stat(nodePath.join(directory, "browser.json")));
+      await assert.rejects(stat(nodePath.join(directory, "browser-profile.lock")));
+    } finally {
+      endpoint.closeAllConnections();
+      const closed = Promise.withResolvers<undefined>();
+      endpoint.close(() => {
+        closed.resolve();
+      });
+      await closed.promise;
+
+      if (previous === undefined) {
+        delete process.env.BEBU_SESSION_FILE;
+      } else {
+        process.env.BEBU_SESSION_FILE = previous;
+      }
+
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);
+
+authTest(
+  "blocked browser verification reports the visible auth command without exposing credentials",
+  async () => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-verification-"));
+    const previous = process.env.BEBU_SESSION_FILE;
+    process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+    const contexts: BrowserContext[] = [];
+    const external = runtime('<button id="attestationTryAgain">Try again</button>', contexts);
+    external.credentials = async () => {
+      await Promise.resolve();
+
+      return { password: "fixture-private-password", username: "fixture@example.com" };
+    };
+
+    try {
+      await assert.rejects(
+        login({ headless: true, timeoutSeconds: 5 }, external),
+        (error: Error) => {
+          assert.match(error.message, /could not verify this browser/u);
+          assert.match(error.message, /Run bebu auth/u);
+          assert.ok(!error.message.includes("fixture-private-password"));
+
+          return true;
+        }
+      );
+      await assert.rejects(stat(nodePath.join(directory, "session.json")));
+    } finally {
+      for (const context of contexts) {
+        await context.close();
+      }
+
+      if (previous === undefined) {
+        delete process.env.BEBU_SESSION_FILE;
+      } else {
+        process.env.BEBU_SESSION_FILE = previous;
+      }
+
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);
+
+void test(
+  "the headed browser renders WebGL2 pixels for the native app",
+  {
+    skip:
+      process.platform === "linux" &&
+      (process.env.DISPLAY ?? "").length === 0 &&
+      (process.env.WAYLAND_DISPLAY ?? "").length === 0,
+    timeout: 15_000,
+  },
+  async () => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-webgl-"));
+    const context = await launchBrowser(directory, { headless: false, timeout: 10_000 });
+
+    try {
+      const [page] = context.pages();
+      assert.ok(page);
+
+      const pixel = await page.evaluate(() => {
+        const gl = document.createElement("canvas").getContext("webgl2");
+
+        if (!gl) {
+          return null;
+        }
+
+        gl.clearColor(0.25, 0.5, 0.75, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        const data = new Uint8Array(4);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, data);
+
+        return [...data];
+      });
+
+      assert.deepEqual(pixel, [64, 128, 191, 255]);
+    } finally {
+      await context.close();
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);
+
+authTest(
+  "a rejected sign-in request cannot be reported as submitted or become a session timeout",
+  async () => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-login-rejection-"));
+    const context = await launchBrowser(directory, { headless: true, timeout: 10_000 });
+
+    try {
+      await context.route("**/*", async (route) => {
+        if (new URL(route.request().url()).hostname === "identitytoolkit.googleapis.com") {
+          await route.fulfill({
+            json: { error: { code: 400, message: "INVALID_LOGIN_CREDENTIALS" } },
+            status: 400,
+          });
+
+          return;
+        }
+
+        await route.fulfill({
+          body: `<!doctype html><input aria-label="Password"><button>Continue</button><button id="emailSignIn.submit">Sign in</button><script>
+        document.getElementById('emailSignIn.submit').onclick=()=>fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=fixture',{method:'POST',body:JSON.stringify({email:'fixture@example.com',password:document.querySelector('input').value})});
+      </script>`,
+          contentType: "text/html",
+        });
+      });
+      const [page] = context.pages();
+      assert.ok(page);
+      await page.goto("https://app.beyondbudgetapp.com");
+      const state = { emailSubmitted: true, opened: true, passwordSubmitted: false };
+      await assert.rejects(
+        advanceSignIn(
+          page,
+          { password: "fixture-password", username: "fixture@example.com" },
+          state
+        ),
+        /rejected the email or password/u
+      );
+      assert.equal(state.passwordSubmitted, false);
+    } finally {
+      await context.close();
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);
+
+authTest(
+  "a missed form submission stays available for manual completion without automatic retries",
+  async () => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-login-no-request-"));
+    const context = await launchBrowser(directory, { headless: true, timeout: 10_000 });
+
+    try {
+      await context.route("**/*", async (route) => {
+        await route.fulfill({
+          body: `<!doctype html><input aria-label="Password"><button id="emailSignIn.submit">Sign in</button><script>
+        document.getElementById('emailSignIn.submit').onclick=()=>{document.body.dataset.clicks=String(Number(document.body.dataset.clicks||0)+1);};
+      </script>`,
+          contentType: "text/html",
+        });
+      });
+      const [page] = context.pages();
+      assert.ok(page);
+      await page.goto("https://app.beyondbudgetapp.com");
+      const state = { emailSubmitted: true, opened: true, passwordSubmitted: false };
+      const messages: string[] = [];
+      const credentials = { password: "fixture-password", username: "fixture@example.com" };
+      await advanceSignIn(page, credentials, state, (message) => {
+        messages.push(message);
+      });
+      await advanceSignIn(page, credentials, state, (message) => {
+        messages.push(message);
+      });
+      assert.equal(state.passwordSubmitted, false);
+      assert.equal(await page.locator("body").getAttribute("data-clicks"), "1");
+      assert.equal(page.isClosed(), false);
+      assert.equal(
+        messages.filter((message) => message.includes("no sign-in request was sent")).length,
+        1
+      );
+    } finally {
+      await context.close();
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);
+
+authTest(
+  "forced login recovers an exited owner lock and captures a session without clearing the profile",
+  async () => {
+    const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-force-login-"));
+    const previous = process.env.BEBU_SESSION_FILE;
+    process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+    const contexts: BrowserContext[] = [];
+
+    try {
+      const child = spawnSync(process.execPath, ["-e", ""]);
+      assert.equal(child.status, 0);
+      await writeFile(nodePath.join(directory, "browser-profile.lock"), String(child.pid));
+
+      const session = await login(
+        { force: true, headless: true, timeoutSeconds: 10 },
+        runtime(signedInPage, contexts)
+      );
+
+      assert.equal(session.uid, "fixture-user");
+      await assert.rejects(stat(nodePath.join(directory, "browser-profile.lock")));
+    } finally {
+      for (const context of contexts) {
+        await context.close();
+      }
+
+      if (previous === undefined) {
+        delete process.env.BEBU_SESSION_FILE;
+      } else {
+        process.env.BEBU_SESSION_FILE = previous;
+      }
+
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
 );

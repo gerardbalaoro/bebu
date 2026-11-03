@@ -1,17 +1,15 @@
 # `bebu auth login`
 
-Connect through your Chrome session. If necessary, wait for sign-in
+Sign in with configured credentials through Patchright
 
 ## Examples
 
-bebu auth login bebu auth login --fresh bebu auth status
+Set BEBU_USERNAME and BEBU_PASSWORD in .env beside .env.schema, or export them.
 
-To reuse your Chrome session:
+bebu auth bebu auth login bebu auth status
 
-1. Enable chrome://inspect/#remote-debugging.
-2. Approve the connection prompt.
-3. If the app requires sign-in, sign in.
-4. Open your budget.
+The browser is visible by default. Both configured credentials are entered automatically. Otherwise,
+complete sign-in manually. bebu detects completion and validates budget access.
 
 ## Usage
 
@@ -21,12 +19,14 @@ bebu auth login [options]
 
 ## Flags
 
-| Flag                          | Type    | Required | Description                                                     |
-| ----------------------------- | ------- | -------- | --------------------------------------------------------------- |
-| `--fresh`, `--no-fresh`       | boolean | No       | Use the separate saved browser profile for bebu                 |
-| `--headless`, `--no-headless` | boolean | No       | Use the separate saved browser profile without a visible window |
-| `-h`, `--help`                | boolean | No       | Show help                                                       |
-| `--timeout`                   | number  | No       | Wait 1 to 3600 seconds for sign-in `[default: 300]`             |
+| Flag                          | Type    | Required | Description                                                            |
+| ----------------------------- | ------- | -------- | ---------------------------------------------------------------------- |
+| `--force`, `--no-force`       | boolean | No       | Recover a stale profile lock after its login process has exited        |
+| `--fresh`, `--no-fresh`       | boolean | No       | Launch the saved profile directly; requires bebu browser to be stopped |
+| `--headed`, `--no-headed`     | boolean | No       | Show the browser for manual sign-in or challenges                      |
+| `--headless`, `--no-headless` | boolean | No       | Run without a visible window                                           |
+| `-h`, `--help`                | boolean | No       | Show help                                                              |
+| `--timeout`                   | number  | No       | Wait 1 to 3600 seconds for sign-in `[default: 300]`                    |
 
 ## Supported syntax
 

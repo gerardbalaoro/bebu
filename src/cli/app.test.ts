@@ -79,6 +79,7 @@ test("login parser errors stay readable and never expose credential arguments", 
   const cases = [
     ["auth", "login", "test@example.com", "fixture-password", "--timeout", "not-a-number"],
     ["auth", "login", "test@example.com", "fixture-password", "--bad-flag"],
+    ["auth", "test@example.com", "fixture-password", "--bad-flag"],
   ];
 
   const results = await Promise.all(
@@ -101,7 +102,15 @@ test("auth status and logout return JSON without a format flag", async () => {
   try {
     const status = await captureExecute(createApp(), ["auth", "status"]);
     expect(status.exitCode).toBe(0);
-    expect(JSON.parse(status.stdout)).toEqual({ authenticated: false, state: "signed-out" });
+    expect(JSON.parse(status.stdout)).toEqual({
+      authenticated: false,
+      profile: {
+        locked: false,
+        path: nodePath.join(directory, "browser-profile"),
+        state: "missing",
+      },
+      state: "signed-out",
+    });
     const logout = await captureExecute(createApp(), ["auth", "logout"]);
     expect(logout.exitCode).toBe(0);
     expect(JSON.parse(logout.stdout)).toEqual({ authenticated: false, loggedOut: true });
@@ -136,5 +145,49 @@ test("allocation commands require explicit dry-run and reviewed apply inputs bef
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).not.toContain("session expired");
+  }
+});
+
+test("browser rejects invalid CDP ports before launching and reports stopped state as JSON", async () => {
+  const invalid = await captureExecute(createApp(), ["browser", "--port", "65536"]);
+  expect(invalid.exitCode).toBe(1);
+  expect(invalid.stderr).toContain("CDP port");
+  const directory = await mkdtemp(nodePath.join(tmpdir(), "bebu-browser-status-"));
+  const previous = process.env.BEBU_SESSION_FILE;
+  process.env.BEBU_SESSION_FILE = nodePath.join(directory, "session.json");
+
+  try {
+    const status = await captureExecute(createApp(), ["browser", "status"]);
+    expect(status.exitCode).toBe(0);
+    expect(JSON.parse(status.stdout)).toEqual({ running: false });
+    const stop = await captureExecute(createApp(), ["browser", "stop"]);
+    expect(JSON.parse(stop.stdout)).toEqual({ stopped: false });
+  } finally {
+    if (previous === undefined) {
+      delete process.env.BEBU_SESSION_FILE;
+    } else {
+      process.env.BEBU_SESSION_FILE = previous;
+    }
+
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test("auth without a subcommand runs login and validates login options", async () => {
+  const result = await captureExecute(createApp(), ["auth", "--timeout", "0"]);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("Provide a timeout");
+  expect(result.stderr).toStartWith("Error: ");
+});
+
+test("auth and auth login accept force before validating the sign-in timeout", async () => {
+  const results = await Promise.all([
+    captureExecute(createApp(), ["auth", "--force", "--timeout", "0"]),
+    captureExecute(createApp(), ["auth", "login", "--force", "--timeout", "0"]),
+  ]);
+
+  for (const result of results) {
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Provide a timeout");
   }
 });
